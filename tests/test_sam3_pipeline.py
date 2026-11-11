@@ -189,6 +189,7 @@ def _mask_png(path, box):
     return str(path)
 
 
+@pytest.mark.adt4
 def test_record_observations_keeps_mask_and_bbox_paired_same_ts(tmp_path):
     """Two detections in the SAME keyframe (same ts) fused into one object must
     each keep their own mask paired with their own bbox, on the keyframe's existing
@@ -229,6 +230,7 @@ def test_record_observations_keeps_mask_and_bbox_paired_same_ts(tmp_path):
     assert d["rgb_path"] == kf.rgb_path and d["mask_path"].endswith(".png")
 
 
+@pytest.mark.adt4
 def test_record_observations_is_idempotent_and_new_object_drops_stale_rows(tmp_path):
     from hydra_python.image_store import ImageStore
 
@@ -250,6 +252,7 @@ def test_record_observations_is_idempotent_and_new_object_drops_stale_rows(tmp_p
     w.close()
 
 
+@pytest.mark.adt4
 def test_record_observations_creates_a_frame_for_a_db_sourced_keyframe(tmp_path):
     """A keyframe loaded from Neo4j whose frame is not in this store still gets an
     observation: a frame row is added from the keyframe's own files and calib."""
@@ -283,6 +286,7 @@ def test_record_observations_creates_a_frame_for_a_db_sourced_keyframe(tmp_path)
         store.close()
 
 
+@pytest.mark.adt4
 def test_upsert_creates_object_in_memory():
     import spark_dsg
     G = spark_dsg.DynamicSceneGraph()
@@ -297,6 +301,7 @@ def test_upsert_creates_object_in_memory():
     assert objs[0].attributes.bounding_box.is_valid()
 
 
+@pytest.mark.adt4
 def test_upsert_dedups_nearby_same_label():
     import spark_dsg
     G = spark_dsg.DynamicSceneGraph()
@@ -307,6 +312,7 @@ def test_upsert_dedups_nearby_same_label():
     assert len(list(G.get_layer(spark_dsg.DsgLayers.OBJECTS).nodes)) == 1
 
 
+@pytest.mark.adt4
 def test_upsert_distinct_objects_both_created():
     import spark_dsg
     G = spark_dsg.DynamicSceneGraph()
@@ -395,6 +401,7 @@ class _FakeWriter:
         return sym
 
 
+@pytest.mark.adt4
 def test_upsert_via_graph_writer_new_and_dedup(monkeypatch):
     """A far object -> add_object (NEW); a near same-label object -> SET update
     (no add_object). Provenance, color, and observations go through writer._db."""
@@ -436,6 +443,7 @@ def test_upsert_via_graph_writer_new_and_dedup(monkeypatch):
     assert len(edge_calls) == 1
 
 
+@pytest.mark.adt4
 def test_record_observations_in_memory_mask_gets_rle_and_a_kept_png(tmp_path):
     """No mask file (no mask_output_dir): the in-memory mask is stored as RLE and as
     the store's ``masks/r<robot>/<obs_id>.png``."""

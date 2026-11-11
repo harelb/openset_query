@@ -119,6 +119,7 @@ def engine(tmp_path):
     return eng
 
 
+@pytest.mark.adt4
 def test_sources_and_filter_pool(engine):
     src = engine.sources()
     assert src == [{"id": "prior", "keyframes": 3},
@@ -135,6 +136,7 @@ def test_sources_and_filter_pool(engine):
     assert len(qs.filter_pool(kfs, "prior", min_ts=newest)) == 1
 
 
+@pytest.mark.adt4
 def test_conf_override_is_per_request(engine):
     seg = engine.segmenter
     r = engine.query("mug", mode="topk", dry_run=True)  # 0.4 < server conf 0.5
@@ -152,12 +154,14 @@ def test_conf_override_is_per_request(engine):
     assert len(engine.query("mug", mode="topk", dry_run=True)["candidates"]) == 1
 
 
+@pytest.mark.adt4
 def test_max_views_caps_rendered_views(engine):
     r = engine.query("mug", mode="topk", dry_run=True, conf=0.3, source="prior", max_views=1)
     (c,) = r["candidates"]
     assert c["num_views"] == 3 and len(c["views"]) == 1
 
 
+@pytest.mark.adt4
 def test_rank_returns_scores_and_thumbs_without_sam3(engine):
     seg = engine.segmenter
     r = engine.rank("mug", top_k=2)
@@ -173,6 +177,7 @@ def test_rank_returns_scores_and_thumbs_without_sam3(engine):
     json.dumps(r)
 
 
+@pytest.mark.adt4
 def test_frame_image(engine):
     key = qs.frame_key(engine.keyframes[0])
     out = engine.frame_image(key, max_dim=32)
@@ -200,6 +205,7 @@ def _req(url, path, body=None):
         return e.code, json.loads(e.read())
 
 
+@pytest.mark.adt4
 def test_http_routes(http):
     engine, url = http
     code, h = _req(url, "/health")

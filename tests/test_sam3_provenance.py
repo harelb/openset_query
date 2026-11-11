@@ -4,6 +4,7 @@ Observation dicts, and OBSERVED_IN/DEPICTS linking after upserts."""
 import asyncio
 
 import numpy as np
+import pytest
 
 from openset_query import object_discovery as od
 from openset_query.config import Sam3FrontendConfig
@@ -67,6 +68,7 @@ class _FakeWriter:
         return f"O({self._n})"
 
 
+@pytest.mark.adt4
 def test_upsert_via_graph_writer_persists_scores_and_links(monkeypatch):
     import heracles.graph_interface as gi
     from openset_query.perception.frame_index import _frame_node_symbol

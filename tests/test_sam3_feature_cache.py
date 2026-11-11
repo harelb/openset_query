@@ -314,6 +314,7 @@ def engine(tmp_path):
     return eng
 
 
+@pytest.mark.adt4
 def test_query_reports_cache_hits_and_results_do_not_change(engine):
     r1 = engine.query("mug", mode="topk", dry_run=True, render="none")
     assert r1["cache"]["miss"] == 3 and r1["cache"]["hit_rate"] == 0.0
@@ -328,6 +329,7 @@ def test_query_reports_cache_hits_and_results_do_not_change(engine):
     assert "cache" not in r3
 
 
+@pytest.mark.adt4
 def test_background_build_then_warm_query(tmp_path, engine):
     assert engine.builder.enqueue(engine.keyframes) == 3
     assert engine.builder.wait(5)
@@ -337,6 +339,7 @@ def test_background_build_then_warm_query(tmp_path, engine):
     assert r["cache"]["miss"] == 0 and r["cache"]["frames"] >= 1
 
 
+@pytest.mark.adt4
 def test_reload_queues_new_frames(engine, monkeypatch):
     engine.builder.enqueue(engine.keyframes)
     engine.builder.wait(5)
@@ -351,6 +354,7 @@ def test_reload_queues_new_frames(engine, monkeypatch):
     assert engine.cached.cache.has("live/robot1/1:f77")
 
 
+@pytest.mark.adt4
 def test_render_modes_and_cluster_fields(engine):
     r = engine.query("mug", mode="topk", dry_run=True, render="none", max_views=2)
     (c,) = r["candidates"]
@@ -365,6 +369,7 @@ def test_render_modes_and_cluster_fields(engine):
         engine.query("mug", dry_run=True, render="some")
 
 
+@pytest.mark.adt4
 def test_frame_image_draws_a_pending_view(engine):
     r = engine.query("mug", mode="topk", dry_run=True, render="none")
     pid, c = r["pending_id"], r["candidates"][0]
@@ -403,6 +408,7 @@ def _req(url, path, body=None):
         return e.code, json.loads(e.read())
 
 
+@pytest.mark.adt4
 def test_http_render_frame_and_health(http):
     engine, url = http
     code, q = _req(url, "/query", {"prompt": "mug", "mode": "topk", "dry_run": True,

@@ -62,6 +62,7 @@ def test_load_keyframes_from_store_subkeyframe_flag(tmp_path):
         assert len(ks.load_keyframes_from_store(s, include_subkeyframes=True)) == 4
 
 
+@pytest.mark.adt4
 def test_sam3_write_back_survives_reindexing(tmp_path):
     """SAM3 observations recorded into an indexed run's store keep their external
     tracks when the indexer refreshes the store."""
