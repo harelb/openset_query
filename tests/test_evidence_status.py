@@ -4,6 +4,7 @@ Each test is one row of the semantics the research abstraction promises.
 If one of these rows changes, the meaning of every grounding.jsonl changes
 with it -- treat edits here as breaking changes.
 """
+
 import pytest
 
 from openset_query.evidence.status import (
@@ -28,18 +29,29 @@ QUERY = GroundingQuery(predicate="exists", args=("suitcase",))
 
 def positive(eid="pos1", conf=0.84, t_collected=NOW_NS - HOUR_NS, **prov):
     return EvidenceRecord(
-        evidence_id=eid, source=EvidenceSource.PRIOR_ARCHIVE,
-        polarity=Polarity.POSITIVE, predicate="exists", args=("suitcase",),
-        t_recorded_ns=NOW_NS, confidence=conf, t_collected_ns=t_collected,
-        provenance=prov or {"score": conf, "n_frames": 8})
+        evidence_id=eid,
+        source=EvidenceSource.PRIOR_ARCHIVE,
+        polarity=Polarity.POSITIVE,
+        predicate="exists",
+        args=("suitcase",),
+        t_recorded_ns=NOW_NS,
+        confidence=conf,
+        t_collected_ns=t_collected,
+        provenance=prov or {"score": conf, "n_frames": 8},
+    )
 
 
 def negative(eid="neg1", coverage=0.97, requery_enabled=True):
     return EvidenceRecord(
-        evidence_id=eid, source=EvidenceSource.CURRENT_ARCHIVE,
-        polarity=Polarity.NEGATIVE, predicate="exists", args=("suitcase",),
-        t_recorded_ns=NOW_NS, coverage=coverage,
-        provenance={"requery_enabled": requery_enabled, "scan_all": True})
+        evidence_id=eid,
+        source=EvidenceSource.CURRENT_ARCHIVE,
+        polarity=Polarity.NEGATIVE,
+        predicate="exists",
+        args=("suitcase",),
+        t_recorded_ns=NOW_NS,
+        coverage=coverage,
+        provenance={"requery_enabled": requery_enabled, "scan_all": True},
+    )
 
 
 class TestNoEvidence:
@@ -64,8 +76,9 @@ class TestPositiveEvidence:
         assert res.belief == pytest.approx(1.0)
 
     def test_under_required_confidence_is_unknown_not_contradicted(self):
-        strict = GroundingQuery(predicate="exists", args=("suitcase",),
-                                required_confidence=0.95)
+        strict = GroundingQuery(
+            predicate="exists", args=("suitcase",), required_confidence=0.95
+        )
         res = compute_status(strict, [positive(conf=0.84)], now_ns=NOW_NS)
         assert res.status is EpistemicStatus.UNKNOWN
         assert res.reason is ReasonCode.BELOW_REQUIRED_CONFIDENCE
@@ -83,10 +96,11 @@ class TestTemporalValidity:
         old = positive(t_collected=NOW_NS - 10 * HOUR_NS)
         fresh_model = NoDecay()
         decay_model = FixedDecay(half_life_s=3600.0)
-        assert compute_status(QUERY, [old], temporal=fresh_model,
-                              now_ns=NOW_NS).status is EpistemicStatus.SUPPORTED
-        res = compute_status(QUERY, [old], temporal=decay_model,
-                             now_ns=NOW_NS)
+        assert (
+            compute_status(QUERY, [old], temporal=fresh_model, now_ns=NOW_NS).status
+            is EpistemicStatus.SUPPORTED
+        )
+        res = compute_status(QUERY, [old], temporal=decay_model, now_ns=NOW_NS)
         assert res.status is EpistemicStatus.UNKNOWN
         assert res.reason is ReasonCode.STALE_HISTORICAL_EVIDENCE
         assert res.status is not EpistemicStatus.CONTRADICTED
@@ -94,31 +108,34 @@ class TestTemporalValidity:
 
     def test_fresh_record_survives_decay_model(self):
         recent = positive(t_collected=NOW_NS - 60 * 10**9)  # 1 min old
-        res = compute_status(QUERY, [recent],
-                             temporal=FixedDecay(half_life_s=3600.0),
-                             now_ns=NOW_NS)
+        res = compute_status(
+            QUERY, [recent], temporal=FixedDecay(half_life_s=3600.0), now_ns=NOW_NS
+        )
         assert res.status is EpistemicStatus.SUPPORTED
 
     def test_unknown_age_fails_closed_under_decay(self):
         # No t_collected: age falls back to t_recorded, which is old here.
         rec = EvidenceRecord(
-            evidence_id="undated", source=EvidenceSource.PRIOR_ARCHIVE,
-            polarity=Polarity.POSITIVE, predicate="exists",
-            args=("suitcase",), t_recorded_ns=NOW_NS - 10 * HOUR_NS,
-            confidence=0.9)
-        res = compute_status(QUERY, [rec],
-                             temporal=FixedDecay(half_life_s=3600.0),
-                             now_ns=NOW_NS)
+            evidence_id="undated",
+            source=EvidenceSource.PRIOR_ARCHIVE,
+            polarity=Polarity.POSITIVE,
+            predicate="exists",
+            args=("suitcase",),
+            t_recorded_ns=NOW_NS - 10 * HOUR_NS,
+            confidence=0.9,
+        )
+        res = compute_status(
+            QUERY, [rec], temporal=FixedDecay(half_life_s=3600.0), now_ns=NOW_NS
+        )
         assert res.status is EpistemicStatus.UNKNOWN
         assert res.reason is ReasonCode.STALE_HISTORICAL_EVIDENCE
 
     def test_mixed_fresh_and_stale_uses_fresh(self):
         old = positive(eid="old", t_collected=NOW_NS - 100 * HOUR_NS)
-        new = positive(eid="new", conf=0.7,
-                       t_collected=NOW_NS - 60 * 10**9)
-        res = compute_status(QUERY, [old, new],
-                             temporal=FixedDecay(half_life_s=3600.0),
-                             now_ns=NOW_NS)
+        new = positive(eid="new", conf=0.7, t_collected=NOW_NS - 60 * 10**9)
+        res = compute_status(
+            QUERY, [old, new], temporal=FixedDecay(half_life_s=3600.0), now_ns=NOW_NS
+        )
         assert res.status is EpistemicStatus.SUPPORTED
         assert "new" in res.supporting
         assert "old" not in res.supporting
@@ -144,22 +161,19 @@ class TestNegativeEvidence:
 
     def test_dead_channel_is_unknown_not_contradicted(self):
         # The worker died: legacy refuses, the honest label is UNKNOWN.
-        res = compute_status(
-            QUERY, [negative(coverage=0.97, requery_enabled=False)])
+        res = compute_status(QUERY, [negative(coverage=0.97, requery_enabled=False)])
         assert res.status is EpistemicStatus.UNKNOWN
         assert res.reason is ReasonCode.PERCEPTION_UNAVAILABLE
 
     def test_blind_channel_is_unknown_not_contradicted(self):
         # Novel class vs closed labelspace: structurally incapable channel.
-        res = compute_status(QUERY, [negative(coverage=0.97)],
-                             channel_capable=False)
+        res = compute_status(QUERY, [negative(coverage=0.97)], channel_capable=False)
         assert res.status is EpistemicStatus.UNKNOWN
         assert res.reason is ReasonCode.PERCEPTION_UNAVAILABLE
 
     def test_coverage_bar_is_inclusive_at_sufficiency(self):
         at_bar = negative(coverage=DEFAULT_COVERAGE_SUFFICIENCY)
-        assert compute_status(QUERY, [at_bar]).status is (
-            EpistemicStatus.CONTRADICTED)
+        assert compute_status(QUERY, [at_bar]).status is (EpistemicStatus.CONTRADICTED)
 
     def test_alive_channel_outweighs_dead_one(self):
         dead = negative(eid="dead", coverage=0.97, requery_enabled=False)

@@ -22,6 +22,7 @@ Deliberately NOT re-exported from ``openset_query.evidence`` (this module
 needs numpy at module scope; the package core stays stdlib-only). Import it
 directly: ``from openset_query.evidence import visibility``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,15 +41,21 @@ COVERED = "COVERED"
 # Agent: pos_* + rot_* (agent_to_dict); SubKeyframe: center point + rot_*
 # (insert_subkeyframes_to_db).
 _FRAME_POSE_SPECS = (
-    ("TrajectoryFrame",
-     ("n.pos_x", "n.pos_y", "n.pos_z"),
-     ("n.pose_qx", "n.pose_qy", "n.pose_qz", "n.pose_qw")),
-    ("Agent",
-     ("n.pos_x", "n.pos_y", "n.pos_z"),
-     ("n.rot_x", "n.rot_y", "n.rot_z", "n.rot_w")),
-    ("SubKeyframe",
-     ("n.center.x", "n.center.y", "n.center.z"),
-     ("n.rot_x", "n.rot_y", "n.rot_z", "n.rot_w")),
+    (
+        "TrajectoryFrame",
+        ("n.pos_x", "n.pos_y", "n.pos_z"),
+        ("n.pose_qx", "n.pose_qy", "n.pose_qz", "n.pose_qw"),
+    ),
+    (
+        "Agent",
+        ("n.pos_x", "n.pos_y", "n.pos_z"),
+        ("n.rot_x", "n.rot_y", "n.rot_z", "n.rot_w"),
+    ),
+    (
+        "SubKeyframe",
+        ("n.center.x", "n.center.y", "n.center.z"),
+        ("n.rot_x", "n.rot_y", "n.rot_z", "n.rot_w"),
+    ),
 )
 FRAME_LABELS = tuple(label for label, _, _ in _FRAME_POSE_SPECS)
 
@@ -83,11 +90,17 @@ def _load_frames(db, label: str, pos_exprs, quat_exprs) -> list:
     for r in records:
         bts = np.asarray(r["bts"], dtype=np.float64).reshape(4, 4)
         world_T_body = _pose_from_quat(
-            r["x"], r["y"], r["z"], r["qx"], r["qy"], r["qz"], r["qw"])
-        calib = {"fx": float(r["fx"]), "fy": float(r["fy"]),
-                 "cx": float(r["cx"]), "cy": float(r["cy"]),
-                 "width": int(r["width"]), "height": int(r["height"]),
-                 "body_T_sensor": bts}
+            r["x"], r["y"], r["z"], r["qx"], r["qy"], r["qz"], r["qw"]
+        )
+        calib = {
+            "fx": float(r["fx"]),
+            "fy": float(r["fy"]),
+            "cx": float(r["cx"]),
+            "cy": float(r["cy"]),
+            "width": int(r["width"]),
+            "height": int(r["height"]),
+            "body_T_sensor": bts,
+        }
         frames.append((r["ns"], world_T_body, calib))
     return frames
 
@@ -103,12 +116,14 @@ def _load_objects(db, object_symbols=None) -> list:
     """,
         **({"syms": list(object_symbols)} if object_symbols is not None else {}),
     )
-    return [(r["ns"], np.array([r["x"], r["y"], r["z"]], dtype=np.float64))
-            for r in records]
+    return [
+        (r["ns"], np.array([r["x"], r["y"], r["z"]], dtype=np.float64)) for r in records
+    ]
 
 
-def _project_batch(world_T_body, calib, centroids,
-                   margin: float = 0.0, max_depth_m=None):
+def _project_batch(
+    world_T_body, calib, centroids, margin: float = 0.0, max_depth_m=None
+):
     """Project world points into one frame; returns (u, v, depth, in_view).
 
     Gate-for-gate the vectorized form of ``object_discovery._in_frustum``:
@@ -118,7 +133,7 @@ def _project_batch(world_T_body, calib, centroids,
     centroids = np.asarray(centroids, dtype=np.float64).reshape(-1, 3)
     T = world_T_body @ calib["body_T_sensor"]  # world_T_sensor
     hom = np.hstack([centroids, np.ones((centroids.shape[0], 1))])
-    p = np.linalg.inv(T) @ hom.T               # (4, N) sensor-frame points
+    p = np.linalg.inv(T) @ hom.T  # (4, N) sensor-frame points
     z = p[2]
     with np.errstate(divide="ignore", invalid="ignore"):
         u = calib["fx"] * p[0] / z + calib["cx"]
@@ -126,14 +141,24 @@ def _project_batch(world_T_body, calib, centroids,
     ok = z > 0.1
     if max_depth_m is not None:
         ok &= ~(z > max_depth_m)
-    ok &= ((-margin <= u) & (u < calib["width"] + margin)
-           & (-margin <= v) & (v < calib["height"] + margin))
+    ok &= (
+        (-margin <= u)
+        & (u < calib["width"] + margin)
+        & (-margin <= v)
+        & (v < calib["height"] + margin)
+    )
     return u, v, z, ok
 
 
-def materialize_views(db, *, max_depth_m=None, margin: float = 0.0,
-                      object_symbols=None, frame_labels=FRAME_LABELS,
-                      refresh: bool = False) -> int:
+def materialize_views(
+    db,
+    *,
+    max_depth_m=None,
+    margin: float = 0.0,
+    object_symbols=None,
+    frame_labels=FRAME_LABELS,
+    refresh: bool = False,
+) -> int:
     """Batch-write ``(frame)-[:VIEWS {u, v, depth_m}]->(:Object)`` edges.
 
     ``max_depth_m`` should be the same value the detection config used
@@ -152,18 +177,23 @@ def materialize_views(db, *, max_depth_m=None, margin: float = 0.0,
         if label not in frame_labels:
             continue
         if refresh:
-            db.execute(
-                f"MATCH (f:{label})-[r:{VIEWS}]->(:{OBJECTS}) DELETE r")
+            db.execute(f"MATCH (f:{label})-[r:{VIEWS}]->(:{OBJECTS}) DELETE r")
         frames = _load_frames(db, label, pos_exprs, quat_exprs)
         rows = []
         for frame_symbol, world_T_body, calib in frames:
             u, v, z, ok = _project_batch(
-                world_T_body, calib, centroids, margin=margin,
-                max_depth_m=max_depth_m)
+                world_T_body, calib, centroids, margin=margin, max_depth_m=max_depth_m
+            )
             for i in np.flatnonzero(ok):
-                rows.append({"f": frame_symbol, "o": objects[i][0],
-                             "u": float(u[i]), "v": float(v[i]),
-                             "d": float(z[i])})
+                rows.append(
+                    {
+                        "f": frame_symbol,
+                        "o": objects[i][0],
+                        "u": float(u[i]),
+                        "v": float(v[i]),
+                        "d": float(z[i]),
+                    }
+                )
         for start in range(0, len(rows), _WRITE_BATCH):
             db.execute(
                 f"""
@@ -173,17 +203,22 @@ def materialize_views(db, *, max_depth_m=None, margin: float = 0.0,
             MERGE (f)-[v:{VIEWS}]->(o)
             SET v.u = row.u, v.v = row.v, v.depth_m = row.d
             """,
-                rows=rows[start:start + _WRITE_BATCH],
+                rows=rows[start : start + _WRITE_BATCH],
             )
         total += len(rows)
         if frames:
-            logger.info("VIEWS materialized: %d %s frames -> %d view pairs",
-                        len(frames), label, len(rows))
+            logger.info(
+                "VIEWS materialized: %d %s frames -> %d view pairs",
+                len(frames),
+                label,
+                len(rows),
+            )
     return total
 
 
-def episode_visual_coverage(db, episode_id: str, *, object_symbols=None,
-                            write: bool = True):
+def episode_visual_coverage(
+    db, episode_id: str, *, object_symbols=None, write: bool = True
+):
     """Fraction of objects viewed by >= 1 frame COVERED by the episode.
 
     Reads the materialized VIEWS edges (run :func:`materialize_views` first).
@@ -196,8 +231,7 @@ def episode_visual_coverage(db, episode_id: str, *, object_symbols=None,
     clause = "AND o.nodeSymbol IN $syms" if object_symbols is not None else ""
     params = {"syms": list(object_symbols)} if object_symbols is not None else {}
     records, _, _ = db.execute(
-        f"MATCH (o:{OBJECTS}) WHERE o.pos_x IS NOT NULL {clause} "
-        "RETURN count(o) AS n",
+        f"MATCH (o:{OBJECTS}) WHERE o.pos_x IS NOT NULL {clause} RETURN count(o) AS n",
         **params,
     )
     n_total = records[0]["n"] if records else 0
@@ -219,6 +253,7 @@ def episode_visual_coverage(db, episode_id: str, *, object_symbols=None,
         db.execute(
             f"MATCH (e:{SEARCH_EPISODES} {{episode_id: $eid}}) "
             "SET e.visual_coverage = $frac",
-            eid=episode_id, frac=fraction,
+            eid=episode_id,
+            frac=fraction,
         )
     return fraction

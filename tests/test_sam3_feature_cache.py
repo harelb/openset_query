@@ -3,6 +3,7 @@
 No GPU, no database: numpy "features", a fake segmenter split into
 ``image_features`` / ``segment_features``, a stub Neo4j wrapper.
 """
+
 import json
 import os
 import threading
@@ -60,8 +61,13 @@ def _feat(v, n=100):
 
 
 def _cache(tmp_path, gpu=1000, cpu=1000, **kw):
-    return fc.FeatureCache(str(tmp_path / "feats"), NumpyCodec(), gpu_budget_bytes=gpu,
-                           cpu_budget_bytes=cpu, **kw)
+    return fc.FeatureCache(
+        str(tmp_path / "feats"),
+        NumpyCodec(),
+        gpu_budget_bytes=gpu,
+        cpu_budget_bytes=cpu,
+        **kw,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +98,9 @@ def test_disk_persists_across_instances_and_keys_are_safe(tmp_path):
     c.put("f1", _feat(1), (3, 4))
     c.close()
     names = os.listdir(tmp_path / "feats")
-    assert len(names) == 2 and all("/" not in n and n.endswith(".safetensors") for n in names)
+    assert len(names) == 2 and all(
+        "/" not in n and n.endswith(".safetensors") for n in names
+    )
     c2 = _cache(tmp_path)
     assert c2.on_disk(key) and c2.tier(key) == "disk"
     f, hw, tier = c2.get(key)
@@ -134,7 +142,9 @@ def test_cache_stats_json():
     for t in ("gpu", "gpu", "disk", "miss"):
         s.add(t, 0.01)
     j = s.to_json()
-    assert j["frames"] == 4 and j["hits"] == 3 and j["hit_rate"] == 0.75 and j["miss"] == 1
+    assert (
+        j["frames"] == 4 and j["hits"] == 3 and j["hit_rate"] == 0.75 and j["miss"] == 1
+    )
     assert fc.CacheStats().to_json()["hit_rate"] is None
 
 
@@ -199,7 +209,11 @@ class SplitSegmenter:
     def segment_features(self, feats, hw, prompts):
         self.head += 1
         score = 0.5 + float(np.asarray(feats).sum()) / 1e4
-        return [Detection(label=prompts[0], mask=_mask(), box=np.array(MASK_BOX), score=score)]
+        return [
+            Detection(
+                label=prompts[0], mask=_mask(), box=np.array(MASK_BOX), score=score
+            )
+        ]
 
     def segment(self, image, prompts):
         return self.segment_features(*self.image_features(image), prompts)
@@ -230,12 +244,15 @@ def test_builder_fills_the_pool_and_skips_cached(tmp_path):
     seg = SplitSegmenter()
     cache = _cache(tmp_path, gpu=10_000)
     cs = fc.CachedSegmenter(seg, cache, qs.frame_key)
-    b = fc.FeatureCacheBuilder(cs, fc.GpuGate(), qs.frame_key,
-                               read_rgb=lambda kf: _rgb(kf.frame_id))
+    b = fc.FeatureCacheBuilder(
+        cs, fc.GpuGate(), qs.frame_key, read_rgb=lambda kf: _rgb(kf.frame_id)
+    )
     kfs = [_KF(i) for i in range(5)]
     assert b.enqueue(kfs) == 5
     assert b.wait(5)
-    assert seg.trunk == 5 and b.built == 5 and all(cache.has(qs.frame_key(k)) for k in kfs)
+    assert (
+        seg.trunk == 5 and b.built == 5 and all(cache.has(qs.frame_key(k)) for k in kfs)
+    )
     assert b.enqueue(kfs + [_KF(9)]) == 1  # only the new frame
     assert b.wait(5) and seg.trunk == 6
     st = b.status()
@@ -269,7 +286,9 @@ class RankEF:
         return None
 
     def rank(self, pool, prompts):
-        return sorted(((kf, 1e-4 * kf.timestamp_ns) for kf in pool), key=lambda t: -t[1])
+        return sorted(
+            ((kf, 1e-4 * kf.timestamp_ns) for kf in pool), key=lambda t: -t[1]
+        )
 
 
 class StubDB:
@@ -295,8 +314,12 @@ def _pool(tmp_path, n=3):
     for i in range(n):
         T = np.eye(4)
         T[0, 3] = 0.05 * i
-        b.frame(1000 + i, color=(40 * i, 200, 30),
-                anchor=image_store.make_node_id("a", i), pose=T)
+        b.frame(
+            1000 + i,
+            color=(40 * i, 200, 30),
+            anchor=image_store.make_node_id("a", i),
+            pose=T,
+        )
     d = b.close()
     with ImageStore.open(d) as s:
         return d, ks.load_keyframes_from_store(s)
@@ -306,10 +329,20 @@ def _pool(tmp_path, n=3):
 def engine(tmp_path):
     store_dir, kfs = _pool(tmp_path)
     cfg = Sam3FrontendConfig(device="cpu", conf_threshold=0.3)
-    cache = fc.FeatureCache(str(tmp_path / "feats"), NumpyCodec(), gpu_budget_bytes=10_000)
-    eng = qs.QueryEngine("bolt://unused", ("u", "p"), cfg, image_store=[str(store_dir)],
-                         segmenter=SplitSegmenter(), embedding_filter=RankEF(),
-                         keyframes=kfs, feature_cache=cache, build_feature_cache=False)
+    cache = fc.FeatureCache(
+        str(tmp_path / "feats"), NumpyCodec(), gpu_budget_bytes=10_000
+    )
+    eng = qs.QueryEngine(
+        "bolt://unused",
+        ("u", "p"),
+        cfg,
+        image_store=[str(store_dir)],
+        segmenter=SplitSegmenter(),
+        embedding_filter=RankEF(),
+        keyframes=kfs,
+        feature_cache=cache,
+        build_feature_cache=False,
+    )
     eng._Neo4jWrapper = StubDB
     return eng
 
@@ -320,7 +353,10 @@ def test_query_reports_cache_hits_and_results_do_not_change(engine):
     assert r1["cache"]["miss"] == 3 and r1["cache"]["hit_rate"] == 0.0
     r2 = engine.query("mug", mode="topk", dry_run=True, render="none")
     assert r2["cache"]["hits"] == 3 and r2["timings"]["cache_hit"] == 1.0
-    strip = lambda r: [(c["score"], c["centroid"], c["num_views"]) for c in r["candidates"]]
+
+    def strip(r):
+        return [(c["score"], c["centroid"], c["num_views"]) for c in r["candidates"]]
+
     assert strip(r1) == strip(r2)
     trunk = engine.segmenter.trunk
     engine.cached = None  # uncached path gives the same candidates
@@ -381,8 +417,12 @@ def test_frame_image_draws_a_pending_view(engine):
     with pytest.raises(qs.PendingNotFound):
         engine.frame_image(None, pending_id="nope", index=0)
     v = c["views"][0]
-    out = engine.frame_image(v["frame_key"], mask_rle=v["mask_rle"], mask_shape=v["mask_shape"],
-                             bbox=v["bbox_2d"])
+    out = engine.frame_image(
+        v["frame_key"],
+        mask_rle=v["mask_rle"],
+        mask_shape=v["mask_shape"],
+        bbox=v["bbox_2d"],
+    )
     assert out["annotated"]
     assert not engine.frame_image(v["frame_key"])["annotated"]
 
@@ -399,8 +439,12 @@ def _req(url, path, body=None):
     import urllib.error
 
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(url + path, data=data, method="GET" if body is None else "POST",
-                                 headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        url + path,
+        data=data,
+        method="GET" if body is None else "POST",
+        headers={"Content-Type": "application/json"},
+    )
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             return r.status, json.loads(r.read())
@@ -411,17 +455,35 @@ def _req(url, path, body=None):
 @pytest.mark.adt4
 def test_http_render_frame_and_health(http):
     engine, url = http
-    code, q = _req(url, "/query", {"prompt": "mug", "mode": "topk", "dry_run": True,
-                                   "render": "none", "max_views": 3})
+    code, q = _req(
+        url,
+        "/query",
+        {
+            "prompt": "mug",
+            "mode": "topk",
+            "dry_run": True,
+            "render": "none",
+            "max_views": 3,
+        },
+    )
     assert code == 200 and q["cache"]["frames"] == 3 and q["association"] == "cluster"
     c = q["candidates"][0]
     assert c["num_frames"] == 3 and c["views"][0]["image_uri"] is None
-    code, f = _req(url, f"/frame?pending_id={q['pending_id']}&index=0&view=2&max_dim=64")
-    assert code == 200 and f["annotated"] and f["frame_key"] == c["views"][2]["frame_key"]
+    code, f = _req(
+        url, f"/frame?pending_id={q['pending_id']}&index=0&view=2&max_dim=64"
+    )
+    assert (
+        code == 200 and f["annotated"] and f["frame_key"] == c["views"][2]["frame_key"]
+    )
     v = c["views"][0]
-    qstr = urllib.parse.urlencode({"key": v["frame_key"], "mask": v["mask_rle"],
-                                   "mask_shape": ",".join(map(str, v["mask_shape"])),
-                                   "bbox": ",".join(map(str, v["bbox_2d"]))})
+    qstr = urllib.parse.urlencode(
+        {
+            "key": v["frame_key"],
+            "mask": v["mask_rle"],
+            "mask_shape": ",".join(map(str, v["mask_shape"])),
+            "bbox": ",".join(map(str, v["bbox_2d"])),
+        }
+    )
     code, f = _req(url, "/frame?" + qstr)
     assert code == 200 and f["annotated"]
     assert _req(url, "/frame?pending_id=nope&index=0")[0] == 404
@@ -429,8 +491,17 @@ def test_http_render_frame_and_health(http):
     assert _req(url, f"/frame?pending_id={q['pending_id']}&index=9")[0] == 404
     assert _req(url, "/query", {"prompt": "mug", "render": "bad"})[0] == 400
     assert _req(url, "/query", {"prompt": "mug", "association": "bad"})[0] == 400
-    code, cq = _req(url, "/query", {"prompt": "mug", "mode": "topk", "dry_run": True,
-                                    "association": "centroid", "render": "none"})
+    code, cq = _req(
+        url,
+        "/query",
+        {
+            "prompt": "mug",
+            "mode": "topk",
+            "dry_run": True,
+            "association": "centroid",
+            "render": "none",
+        },
+    )
     assert code == 200 and cq["association"] == "centroid"
     code, h = _req(url, "/health")
     assert code == 200 and h["feature_cache"]["pool"] == 3 and h["busy"] is False

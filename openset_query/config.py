@@ -50,8 +50,12 @@ class Sam3FrontendConfig:
     compile: bool = False
 
     # --- Vocabulary (hybrid: fixed list + arbitrary query strings) ---
-    object_classes: List[str] = field(default_factory=lambda: list(DEFAULT_OBJECT_CLASSES))
-    region_classes: List[str] = field(default_factory=lambda: list(DEFAULT_REGION_CLASSES))
+    object_classes: List[str] = field(
+        default_factory=lambda: list(DEFAULT_OBJECT_CLASSES)
+    )
+    region_classes: List[str] = field(
+        default_factory=lambda: list(DEFAULT_REGION_CLASSES)
+    )
 
     # --- Reprojection ---
     # Reject masks whose number of valid (finite, in-range) depth pixels is below

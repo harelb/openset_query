@@ -36,7 +36,7 @@ from typing import Callable, Iterable, Optional
 
 logger = logging.getLogger("openset_query.feature_cache")
 
-GB = 1024 ** 3
+GB = 1024**3
 
 
 class GpuGate:
@@ -108,8 +108,11 @@ class TorchCodec:
     def save(path: str, feats, hw) -> None:
         from safetensors.torch import save_file
 
-        save_file({"feats": feats.detach().to("cpu").contiguous()}, path,
-                  metadata={"h": str(int(hw[0])), "w": str(int(hw[1]))})
+        save_file(
+            {"feats": feats.detach().to("cpu").contiguous()},
+            path,
+            metadata={"h": str(int(hw[0])), "w": str(int(hw[1]))},
+        )
 
     def load(self, path: str, to_gpu: bool = True):
         from safetensors import safe_open
@@ -130,9 +133,15 @@ def _safe_name(key: str) -> str:
 class FeatureCache:
     """Three-tier (GPU / CPU / disk) LRU of per-frame SAM3 trunk features."""
 
-    def __init__(self, cache_dir: Optional[str], codec, gpu_budget_bytes: int = 4 * GB,
-                 cpu_budget_bytes: int = 4 * GB, max_disk_bytes: int = 64 * GB,
-                 write_async: bool = True):
+    def __init__(
+        self,
+        cache_dir: Optional[str],
+        codec,
+        gpu_budget_bytes: int = 4 * GB,
+        cpu_budget_bytes: int = 4 * GB,
+        max_disk_bytes: int = 64 * GB,
+        write_async: bool = True,
+    ):
         self.cache_dir = cache_dir
         self.codec = codec
         self.gpu_budget = max(0, int(gpu_budget_bytes))
@@ -152,15 +161,20 @@ class FeatureCache:
                 for name in os.listdir(cache_dir):
                     if name.endswith(".safetensors"):
                         self._on_disk.add(name)
-                        self._disk_bytes += os.path.getsize(os.path.join(cache_dir, name))
+                        self._disk_bytes += os.path.getsize(
+                            os.path.join(cache_dir, name)
+                        )
             except OSError as e:
-                logger.warning("feature cache dir %s unusable (%s): memory only", cache_dir, e)
+                logger.warning(
+                    "feature cache dir %s unusable (%s): memory only", cache_dir, e
+                )
                 self._disk_ok = False
         self._writes: "queue.Queue" = queue.Queue()
         self._writer = None
         if self._disk_ok and write_async:
-            self._writer = threading.Thread(target=self._write_loop, name="sam3-feat-writer",
-                                            daemon=True)
+            self._writer = threading.Thread(
+                target=self._write_loop, name="sam3-feat-writer", daemon=True
+            )
             self._writer.start()
 
     # -- lookup ---------------------------------------------------------------
@@ -174,8 +188,12 @@ class FeatureCache:
 
     def has(self, key: str) -> bool:
         with self._lock:
-            return key in self._gpu or key in self._cpu or key in self._pending_writes \
+            return (
+                key in self._gpu
+                or key in self._cpu
+                or key in self._pending_writes
                 or _safe_name(key) in self._on_disk
+            )
 
     def tier(self, key: str) -> Optional[str]:
         with self._lock:
@@ -207,7 +225,9 @@ class FeatureCache:
         try:
             feats, hw = self.codec.load(self.path(key), to_gpu=True)
         except Exception as e:
-            logger.warning("feature cache: dropping unreadable %s (%s)", self.path(key), e)
+            logger.warning(
+                "feature cache: dropping unreadable %s (%s)", self.path(key), e
+            )
             with self._lock:
                 self._on_disk.discard(_safe_name(key))
             return None
@@ -223,9 +243,13 @@ class FeatureCache:
         hw = (int(hw[0]), int(hw[1]))
         with self._lock:
             self._insert_gpu(key, feats, hw)
-            want_disk = (persist and self._disk_ok and _safe_name(key) not in self._on_disk
-                         and key not in self._pending_writes
-                         and self._disk_bytes < self.max_disk_bytes)
+            want_disk = (
+                persist
+                and self._disk_ok
+                and _safe_name(key) not in self._on_disk
+                and key not in self._pending_writes
+                and self._disk_bytes < self.max_disk_bytes
+            )
             if want_disk:
                 self._pending_writes.add(key)
         if want_disk:
@@ -262,7 +286,9 @@ class FeatureCache:
             _, (_, _, b) = self._cpu.popitem(last=False)
             self._cpu_bytes -= b
 
-    def preload(self, keys: Iterable[str], stop: Optional[Callable[[], bool]] = None) -> int:
+    def preload(
+        self, keys: Iterable[str], stop: Optional[Callable[[], bool]] = None
+    ) -> int:
         """Load on-disk features of ``keys`` into memory while the GPU tier has room."""
         n = 0
         for key in keys:
@@ -271,7 +297,11 @@ class FeatureCache:
             with self._lock:
                 if key in self._gpu or key in self._cpu:
                     continue
-                full = self._gpu and self._gpu_bytes + next(iter(self._gpu.values()))[2] > self.gpu_budget
+                full = (
+                    self._gpu
+                    and self._gpu_bytes + next(iter(self._gpu.values()))[2]
+                    > self.gpu_budget
+                )
             if full:
                 break
             if self.get(key) is not None:
@@ -291,7 +321,9 @@ class FeatureCache:
                 self._on_disk.add(_safe_name(key))
                 self._disk_bytes += size
         except Exception as e:
-            logger.warning("feature cache: cannot write %s (%s); disk tier disabled", path, e)
+            logger.warning(
+                "feature cache: cannot write %s (%s); disk tier disabled", path, e
+            )
             self._disk_ok = False
             try:
                 os.remove(tmp)
@@ -325,14 +357,17 @@ class FeatureCache:
 
     def stats(self) -> dict:
         with self._lock:
-            return {"gpu": len(self._gpu), "cpu": len(self._cpu),
-                    "disk": len(self._on_disk),
-                    "gpu_gb": round(self._gpu_bytes / GB, 2),
-                    "cpu_gb": round(self._cpu_bytes / GB, 2),
-                    "disk_gb": round(self._disk_bytes / GB, 2),
-                    "gpu_budget_gb": round(self.gpu_budget / GB, 2),
-                    "cpu_budget_gb": round(self.cpu_budget / GB, 2),
-                    "dir": self.cache_dir}
+            return {
+                "gpu": len(self._gpu),
+                "cpu": len(self._cpu),
+                "disk": len(self._on_disk),
+                "gpu_gb": round(self._gpu_bytes / GB, 2),
+                "cpu_gb": round(self._cpu_bytes / GB, 2),
+                "disk_gb": round(self._disk_bytes / GB, 2),
+                "gpu_budget_gb": round(self.gpu_budget / GB, 2),
+                "cpu_budget_gb": round(self.cpu_budget / GB, 2),
+                "dir": self.cache_dir,
+            }
 
 
 class CacheStats:
@@ -349,9 +384,13 @@ class CacheStats:
     def to_json(self) -> dict:
         n = sum(self.counts.values())
         hits = n - self.counts.get("miss", 0)
-        return {"frames": n, "hits": hits, "hit_rate": round(hits / n, 3) if n else None,
-                **{k: self.counts.get(k, 0) for k in ("gpu", "cpu", "disk", "miss")},
-                "feat_s": round(self.feat_s, 3)}
+        return {
+            "frames": n,
+            "hits": hits,
+            "hit_rate": round(hits / n, 3) if n else None,
+            **{k: self.counts.get(k, 0) for k in ("gpu", "cpu", "disk", "miss")},
+            "feat_s": round(self.feat_s, 3),
+        }
 
 
 class CachedSegmenter:
@@ -402,8 +441,13 @@ class FeatureCacheBuilder:
     drains, on-disk features are preloaded into the GPU tier while it has room.
     """
 
-    def __init__(self, cached: CachedSegmenter, gate: GpuGate, key_fn: Callable,
-                 read_rgb: Optional[Callable] = None):
+    def __init__(
+        self,
+        cached: CachedSegmenter,
+        gate: GpuGate,
+        key_fn: Callable,
+        read_rgb: Optional[Callable] = None,
+    ):
         self.cached, self.gate, self._key = cached, gate, key_fn
         if read_rgb is None:
             from openset_query import keyframe_store as ks
@@ -441,8 +485,9 @@ class FeatureCacheBuilder:
                 self.finished_at = None
             self._cv.notify_all()
         if start:
-            self._thread = threading.Thread(target=self._run, name="sam3-feat-builder",
-                                            daemon=True)
+            self._thread = threading.Thread(
+                target=self._run, name="sam3-feat-builder", daemon=True
+            )
             self._thread.start()
         return len(todo)
 
@@ -477,12 +522,18 @@ class FeatureCacheBuilder:
                     if not keys:
                         self._active = False
                         self.finished_at = time.time()
-                        logger.info("feature cache: built %d frames (%.1f s, %d failed) | %s",
-                                    self.built, self.build_s, self.failed,
-                                    self.cached.cache.stats())
+                        logger.info(
+                            "feature cache: built %d frames (%.1f s, %d failed) | %s",
+                            self.built,
+                            self.build_s,
+                            self.failed,
+                            self.cached.cache.stats(),
+                        )
                         return
             if kf is None:
-                n = self.cached.cache.preload(keys, stop=lambda: self._stop or bool(self._q))
+                n = self.cached.cache.preload(
+                    keys, stop=lambda: self._stop or bool(self._q)
+                )
                 if n:
                     logger.info("feature cache: preloaded %d frames from disk", n)
                 continue
@@ -497,7 +548,9 @@ class FeatureCacheBuilder:
         try:
             rgb = self._read_rgb(kf)
         except Exception as e:
-            logger.warning("feature cache: cannot read %s: %s", getattr(kf, "rgb_path", kf), e)
+            logger.warning(
+                "feature cache: cannot read %s: %s", getattr(kf, "rgb_path", kf), e
+            )
             self.failed += 1
             return
         t = time.perf_counter()
@@ -512,7 +565,11 @@ class FeatureCacheBuilder:
         self.build_s += time.perf_counter() - t
 
     def status(self) -> dict:
-        return {"building": self.running() and self.pending() > 0, "queued": self.pending(),
-                "built": self.built, "failed": self.failed,
-                "build_s": round(self.build_s, 1),
-                "per_frame_s": round(self.build_s / self.built, 3) if self.built else None}
+        return {
+            "building": self.running() and self.pending() > 0,
+            "queued": self.pending(),
+            "built": self.built,
+            "failed": self.failed,
+            "build_s": round(self.build_s, 1),
+            "per_frame_s": round(self.build_s / self.built, 3) if self.built else None,
+        }

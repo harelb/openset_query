@@ -112,14 +112,21 @@ def _prepare(d, emb=None, margin=0.0) -> dict:
     lo = np.asarray(o.bbox_min, dtype=np.float64) - margin
     hi = np.asarray(o.bbox_max, dtype=np.float64) + margin
     size = np.maximum(hi - lo, 0.0)
-    return {"label": label_key(o.label), "lo": lo, "hi": hi,
-            "c": np.asarray(o.centroid, dtype=np.float64),
-            "extent": float(np.max(size)) if size.size else 0.0,
-            "emb": None if emb is None else np.asarray(emb, dtype=np.float64)}
+    return {
+        "label": label_key(o.label),
+        "lo": lo,
+        "hi": hi,
+        "c": np.asarray(o.centroid, dtype=np.float64),
+        "extent": float(np.max(size)) if size.size else 0.0,
+        "emb": None if emb is None else np.asarray(emb, dtype=np.float64),
+    }
 
 
-def cluster_indices(items: Sequence, params: Optional[AssociationParams] = None,
-                    embeddings: Optional[Sequence] = None) -> List[List[int]]:
+def cluster_indices(
+    items: Sequence,
+    params: Optional[AssociationParams] = None,
+    embeddings: Optional[Sequence] = None,
+) -> List[List[int]]:
     """Group per-view detections (``DiscoveredObject``-like: ``.obj`` with
     ``bbox_min``/``bbox_max``/``centroid``/``label``) into same-object clusters.
     Returns lists of indices into ``items``, each sorted by descending score;
@@ -183,27 +190,37 @@ def _obs_frame_key(o) -> str:
     return str(getattr(o, "timestamp_ns", id(o)))
 
 
-def merge_cluster(members: Sequence, percentile_lo: float = 5.0,
-                  percentile_hi: float = 95.0):
+def merge_cluster(
+    members: Sequence, percentile_lo: float = 5.0, percentile_hi: float = 95.0
+):
     """One ``DiscoveredObject`` from a cluster (members best first): pooled-point
     geometry, best score, observations sorted by score, ``num_frames``."""
     from openset_query.object_discovery import DiscoveredObject
 
     best = members[0]
     o = copy.copy(best.obj)
-    pool = [m.obj.points for m in members if getattr(m.obj, "points", None) is not None
-            and len(m.obj.points)]
+    pool = [
+        m.obj.points
+        for m in members
+        if getattr(m.obj, "points", None) is not None and len(m.obj.points)
+    ]
     if pool:
-        reduced = points_to_object(np.vstack(pool), o.label, o.score, percentile_lo,
-                                   percentile_hi)
+        reduced = points_to_object(
+            np.vstack(pool), o.label, o.score, percentile_lo, percentile_hi
+        )
         if reduced is not None:
-            o.centroid, o.bbox_min, o.bbox_max = (reduced.centroid, reduced.bbox_min,
-                                                  reduced.bbox_max)
+            o.centroid, o.bbox_min, o.bbox_max = (
+                reduced.centroid,
+                reduced.bbox_min,
+                reduced.bbox_max,
+            )
             o.num_points = reduced.num_points
             o.points = reduced.points
     elif len(members) > 1:  # synthetic detections without points: score-weighted
         w = np.array([max(float(m.obj.score), 1e-6) for m in members])
-        o.centroid = (np.stack([m.obj.centroid for m in members]) * w[:, None]).sum(0) / w.sum()
+        o.centroid = (np.stack([m.obj.centroid for m in members]) * w[:, None]).sum(
+            0
+        ) / w.sum()
         o.bbox_min = np.min(np.stack([m.obj.bbox_min for m in members]), axis=0)
         o.bbox_max = np.max(np.stack([m.obj.bbox_max for m in members]), axis=0)
         o.num_points = int(sum(m.obj.num_points for m in members))
@@ -215,14 +232,20 @@ def merge_cluster(members: Sequence, percentile_lo: float = 5.0,
     return disc
 
 
-def cluster_detections(items: Sequence, params: Optional[AssociationParams] = None,
-                       embeddings: Optional[Sequence] = None,
-                       percentile_lo: float = 5.0, percentile_hi: float = 95.0) -> list:
+def cluster_detections(
+    items: Sequence,
+    params: Optional[AssociationParams] = None,
+    embeddings: Optional[Sequence] = None,
+    percentile_lo: float = 5.0,
+    percentile_hi: float = 95.0,
+) -> list:
     """Per-view detections -> one ``DiscoveredObject`` per same-object cluster,
     best cluster first. Never mutates ``items``."""
     groups = cluster_indices(items, params, embeddings)
-    return [merge_cluster([items[i] for i in g], percentile_lo, percentile_hi)
-            for g in groups]
+    return [
+        merge_cluster([items[i] for i in g], percentile_lo, percentile_hi)
+        for g in groups
+    ]
 
 
 def params_from_config(config) -> AssociationParams:

@@ -32,12 +32,13 @@ through the sanctioned writers in :mod:`~openset_query.evidence.admission`.
 
 Import contract: stdlib only at module scope; ``db`` handles are passed in.
 """
+
 from __future__ import annotations
 
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Protocol, Sequence, Tuple, runtime_checkable
+from typing import Optional, Protocol, Sequence, Tuple, runtime_checkable
 
 from .admission import (
     ADMITTED,
@@ -121,7 +122,8 @@ class AdmissionCalibration:
         if self.margin_reject > self.margin_admit:
             raise ValueError(
                 f"margin_reject ({self.margin_reject}) must not exceed "
-                f"margin_admit ({self.margin_admit})")
+                f"margin_admit ({self.margin_admit})"
+            )
         if self.min_views < 1:
             raise ValueError("min_views must be >= 1")
 
@@ -140,10 +142,20 @@ class AdmissionCalibration:
 
     @classmethod
     def from_json(cls, d: dict) -> "AdmissionCalibration":
-        missing = [k for k in ("version", "control_prompts", "margin_admit",
-                               "margin_reject", "min_views", "min_sam3_score",
-                               "min_depth_valid_px", "max_view_spread_m")
-                   if k not in d]
+        missing = [
+            k
+            for k in (
+                "version",
+                "control_prompts",
+                "margin_admit",
+                "margin_reject",
+                "min_views",
+                "min_sam3_score",
+                "min_depth_valid_px",
+                "max_view_spread_m",
+            )
+            if k not in d
+        ]
         if missing:
             raise ValueError(f"calibration artifact missing keys: {missing}")
         return cls(
@@ -179,20 +191,21 @@ class AdmissionPolicy(Protocol):
 
     policy_version: str
 
-    def grade(self, evidences: Sequence[ObservationEvidence]) -> AdmissionDecision:
-        ...
+    def grade(self, evidences: Sequence[ObservationEvidence]) -> AdmissionDecision: ...
 
 
 def _valid(e: ObservationEvidence, cal: AdmissionCalibration) -> bool:
     """Mask/depth validity + detector floor. Fail-closed: a view missing either
     measurement cannot vouch for anything."""
-    return (e.sam3_score is not None and e.sam3_score >= cal.min_sam3_score
-            and e.depth_valid_px is not None
-            and e.depth_valid_px >= cal.min_depth_valid_px)
+    return (
+        e.sam3_score is not None
+        and e.sam3_score >= cal.min_sam3_score
+        and e.depth_valid_px is not None
+        and e.depth_valid_px >= cal.min_depth_valid_px
+    )
 
 
-def _spread_ok(views: Sequence[ObservationEvidence],
-               cal: AdmissionCalibration) -> bool:
+def _spread_ok(views: Sequence[ObservationEvidence], cal: AdmissionCalibration) -> bool:
     """Geometric consistency over the vouching views. ``None`` spread (fewer
     than two located views) is acceptable only when one view suffices —
     otherwise consistency was required and could not be measured."""
@@ -217,39 +230,51 @@ class RelativeMarginPolicy:
         gradable = [e for e in evidences if e.margin is not None and _valid(e, cal)]
         if not gradable:
             return AdmissionDecision(
-                status=UNKNOWN, policy_version=self.policy_version,
-                reason="no valid margin-scored views to grade")
+                status=UNKNOWN,
+                policy_version=self.policy_version,
+                reason="no valid margin-scored views to grade",
+            )
 
         passing = [e for e in gradable if e.margin >= cal.margin_admit]
-        if (distinct_view_count(passing) >= cal.min_views
-                and _spread_ok(passing, cal)):
+        if distinct_view_count(passing) >= cal.min_views and _spread_ok(passing, cal):
             return AdmissionDecision(
-                status=ADMITTED, policy_version=self.policy_version,
-                reason=(f"{distinct_view_count(passing)} view(s) with margin >= "
-                        f"{cal.margin_admit} (best "
-                        f"{max(e.margin for e in passing):.4f}), geometrically "
-                        f"consistent"),
+                status=ADMITTED,
+                policy_version=self.policy_version,
+                reason=(
+                    f"{distinct_view_count(passing)} view(s) with margin >= "
+                    f"{cal.margin_admit} (best "
+                    f"{max(e.margin for e in passing):.4f}), geometrically "
+                    f"consistent"
+                ),
                 belief=max(e.sam3_score for e in passing),
-                observation_ids=tuple(e.obs_id for e in passing))
+                observation_ids=tuple(e.obs_id for e in passing),
+            )
 
         if all(e.margin < cal.margin_reject for e in gradable):
             return AdmissionDecision(
-                status=REJECTED, policy_version=self.policy_version,
-                reason=(f"all {len(gradable)} valid view(s) fail the "
-                        f"negative-control margin (best "
-                        f"{max(e.margin for e in gradable):.4f} < reject "
-                        f"threshold {cal.margin_reject})"),
-                observation_ids=tuple(e.obs_id for e in gradable))
+                status=REJECTED,
+                policy_version=self.policy_version,
+                reason=(
+                    f"all {len(gradable)} valid view(s) fail the "
+                    f"negative-control margin (best "
+                    f"{max(e.margin for e in gradable):.4f} < reject "
+                    f"threshold {cal.margin_reject})"
+                ),
+                observation_ids=tuple(e.obs_id for e in gradable),
+            )
 
         if passing and distinct_view_count(passing) < cal.min_views:
-            why = (f"only {distinct_view_count(passing)} passing view(s); "
-                   f"{cal.min_views} required")
+            why = (
+                f"only {distinct_view_count(passing)} passing view(s); "
+                f"{cal.min_views} required"
+            )
         elif passing:
             why = "margin-passing views geometrically inconsistent"
         else:
             why = "margins between reject and admit thresholds"
-        return AdmissionDecision(status=UNKNOWN,
-                                 policy_version=self.policy_version, reason=why)
+        return AdmissionDecision(
+            status=UNKNOWN, policy_version=self.policy_version, reason=why
+        )
 
 
 class GeometricPolicy:
@@ -269,38 +294,52 @@ class GeometricPolicy:
         valid = [e for e in evidences if _valid(e, cal)]
         if not valid:
             return AdmissionDecision(
-                status=UNKNOWN, policy_version=self.policy_version,
-                reason="no views pass segmentation validity")
+                status=UNKNOWN,
+                policy_version=self.policy_version,
+                reason="no views pass segmentation validity",
+            )
         if distinct_view_count(valid) >= cal.min_views and _spread_ok(valid, cal):
             return AdmissionDecision(
-                status=ADMITTED, policy_version=self.policy_version,
-                reason=(f"{distinct_view_count(valid)} valid view(s), "
-                        f"geometrically consistent"),
+                status=ADMITTED,
+                policy_version=self.policy_version,
+                reason=(
+                    f"{distinct_view_count(valid)} valid view(s), "
+                    f"geometrically consistent"
+                ),
                 belief=max(e.sam3_score for e in valid),
-                observation_ids=tuple(e.obs_id for e in valid))
+                observation_ids=tuple(e.obs_id for e in valid),
+            )
         if not _spread_ok(valid, cal):
             why = "valid views geometrically inconsistent"
         else:
-            why = (f"only {distinct_view_count(valid)} valid view(s); "
-                   f"{cal.min_views} required")
-        return AdmissionDecision(status=UNKNOWN,
-                                 policy_version=self.policy_version, reason=why)
+            why = (
+                f"only {distinct_view_count(valid)} valid view(s); "
+                f"{cal.min_views} required"
+            )
+        return AdmissionDecision(
+            status=UNKNOWN, policy_version=self.policy_version, reason=why
+        )
 
 
-def make_admission_policy(kind: str,
-                          calibration: Optional[AdmissionCalibration]):
+def make_admission_policy(kind: str, calibration: Optional[AdmissionCalibration]):
     """The policy switch. ``"off"`` (or a missing calibration) returns None —
     candidates then stay candidates, the default behavior."""
     if kind not in POLICY_KINDS:
-        raise ValueError(f"unknown admission policy kind {kind!r}; "
-                         f"expected one of {POLICY_KINDS}")
+        raise ValueError(
+            f"unknown admission policy kind {kind!r}; expected one of {POLICY_KINDS}"
+        )
     if kind == "off":
         return None
     if calibration is None:
-        raise ValueError(f"admission policy {kind!r} requires a calibration "
-                         "artifact (see eval/calibrate_admission.py)")
-    return (RelativeMarginPolicy(calibration) if kind == "margin"
-            else GeometricPolicy(calibration))
+        raise ValueError(
+            f"admission policy {kind!r} requires a calibration "
+            "artifact (see eval/calibrate_admission.py)"
+        )
+    return (
+        RelativeMarginPolicy(calibration)
+        if kind == "margin"
+        else GeometricPolicy(calibration)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -319,8 +358,9 @@ ORDER BY obs.timestamp_ns, obs.nodeSymbol
 """
 
 
-def load_observation_evidence(db, node_symbol: str,
-                              prompt: Optional[str] = None) -> list:
+def load_observation_evidence(
+    db, node_symbol: str, prompt: Optional[str] = None
+) -> list:
     """Rebuild :class:`ObservationEvidence` for every observation of an object.
 
     When ``prompt`` is given, views scored against a DIFFERENT prompt keep
@@ -332,34 +372,43 @@ def load_observation_evidence(db, node_symbol: str,
     out = []
     for r in records:
         obs_prompt = r.get("prompt")
-        same_prompt = (prompt is None or (obs_prompt is not None
-                       and obs_prompt.strip().lower() == prompt.strip().lower()))
+        same_prompt = prompt is None or (
+            obs_prompt is not None
+            and obs_prompt.strip().lower() == prompt.strip().lower()
+        )
         controls = {}
         if same_prompt and r.get("controls"):
             try:
-                controls = {str(k): float(v)
-                            for k, v in json.loads(r["controls"]).items()}
+                controls = {
+                    str(k): float(v) for k, v in json.loads(r["controls"]).items()
+                }
             except (ValueError, TypeError):
                 controls = {}
         xyz = None
         if r.get("vx") is not None:
             xyz = (float(r["vx"]), float(r["vy"]), float(r["vz"]))
-        out.append(ObservationEvidence(
-            obs_id=r["ns"],
-            timestamp_ns=r.get("ts"),
-            sam3_score=r.get("sam3"),
-            target_score=(r.get("target") if same_prompt else None),
-            control_scores=controls,
-            depth_valid_px=r.get("depth_px"),
-            view_xyz=xyz,
-            target_prompt=obs_prompt,
-        ))
+        out.append(
+            ObservationEvidence(
+                obs_id=r["ns"],
+                timestamp_ns=r.get("ts"),
+                sam3_score=r.get("sam3"),
+                target_score=(r.get("target") if same_prompt else None),
+                control_scores=controls,
+                depth_valid_px=r.get("depth_px"),
+                view_xyz=xyz,
+                target_prompt=obs_prompt,
+            )
+        )
     return out
 
 
-def grade_object(db, node_symbol: str, policy,
-                 evidences: Optional[Sequence[ObservationEvidence]] = None,
-                 prompt: Optional[str] = None) -> AdmissionDecision:
+def grade_object(
+    db,
+    node_symbol: str,
+    policy,
+    evidences: Optional[Sequence[ObservationEvidence]] = None,
+    prompt: Optional[str] = None,
+) -> AdmissionDecision:
     """Grade ONE candidate and write the verdict through the sanctioned writers.
 
     Only a ``candidate`` is graded: trusted priors, human/or-earlier decisions
@@ -374,18 +423,28 @@ def grade_object(db, node_symbol: str, policy,
     current = admission_status(db, node_symbol)
     if current != CANDIDATE:
         return AdmissionDecision(
-            status=UNKNOWN, policy_version=policy.policy_version,
-            reason=f"not graded: admission_status is {current!r}, not candidate")
+            status=UNKNOWN,
+            policy_version=policy.policy_version,
+            reason=f"not graded: admission_status is {current!r}, not candidate",
+        )
 
     if evidences is None:
         evidences = load_observation_evidence(db, node_symbol, prompt=prompt)
     decision = policy.grade(list(evidences))
 
     if decision.status == ADMITTED:
-        admit_object(db, node_symbol, policy_version=decision.policy_version,
-                     observation_ids=decision.observation_ids,
-                     belief=decision.belief)
+        admit_object(
+            db,
+            node_symbol,
+            policy_version=decision.policy_version,
+            observation_ids=decision.observation_ids,
+            belief=decision.belief,
+        )
     elif decision.status == REJECTED:
-        reject_object(db, node_symbol, policy_version=decision.policy_version,
-                      reason=decision.reason)
+        reject_object(
+            db,
+            node_symbol,
+            policy_version=decision.policy_version,
+            reason=decision.reason,
+        )
     return decision

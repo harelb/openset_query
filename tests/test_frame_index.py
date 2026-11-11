@@ -34,7 +34,6 @@ if not _TESTCONTAINERS_AVAILABLE and not _NEO4J_ENV_URI:
 # Imports (only reached when a Neo4j instance is available)
 # ---------------------------------------------------------------------------
 
-import numpy as np
 from PIL import Image
 
 from heracles.graph_interface import (
@@ -45,7 +44,6 @@ from heracles.query_interface import Neo4jWrapper
 from openset_query.perception.embedders import StubEmbedder
 from openset_query.perception.frame_index import (
     TrajectoryFrameIndex,
-    _frame_node_symbol,
 )
 
 
@@ -82,7 +80,11 @@ def db():
 def clean_db(db):
     """Wipe the database before each test to ensure isolation."""
     db.execute("MATCH (n) DETACH DELETE n")
-    for idx in ("object_embedding", "observation_embedding", "trajectoryframe_embedding"):
+    for idx in (
+        "object_embedding",
+        "observation_embedding",
+        "trajectoryframe_embedding",
+    ):
         try:
             db.execute(f"DROP INDEX {idx} IF EXISTS")
         except Exception:
@@ -246,7 +248,9 @@ def test_lookup_near_radius(tmp_path, db):
     )
     # Verify ascending distance order
     distances = [r["distance"] for r in results]
-    assert distances == sorted(distances), f"Results not sorted by distance: {distances}"
+    assert distances == sorted(distances), (
+        f"Results not sorted by distance: {distances}"
+    )
 
 
 def test_query_by_text_with_radius(tmp_path, db):
@@ -311,4 +315,6 @@ def test_query_by_text_with_radius(tmp_path, db):
     )
     symbols = {r["nodeSymbol"] for r in results}
     assert near_ns in symbols, f"Near frame {near_ns} not in results: {symbols}"
-    assert far_ns not in symbols, f"Far frame {far_ns} should not be in results: {symbols}"
+    assert far_ns not in symbols, (
+        f"Far frame {far_ns} should not be in results: {symbols}"
+    )

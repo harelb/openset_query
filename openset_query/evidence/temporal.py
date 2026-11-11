@@ -22,6 +22,7 @@ Design invariants (do not break): decay applied only at compute_status;
 negative evidence = completed search with coverage; coverage=None never
 contradicts.
 """
+
 from __future__ import annotations
 
 
@@ -97,5 +98,8 @@ class FixedDecay(TemporalValidityModel):
         return self.weight(record, now_ns) < self.floor
 
     def describe(self) -> dict:
-        return {"model": "FixedDecay", "half_life_s": self.half_life_s,
-                "floor": self.floor}
+        return {
+            "model": "FixedDecay",
+            "half_life_s": self.half_life_s,
+            "floor": self.floor,
+        }

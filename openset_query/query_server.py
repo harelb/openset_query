@@ -144,9 +144,13 @@ def filter_pool(keyframes, source=None, min_ts=None) -> list:
         if source == "live":
             pool = [kf for kf in pool if keyframe_source(kf).startswith("live/")]
         else:
-            pool = [kf for kf in pool if keyframe_source(kf) == source
-                    or keyframe_source(kf).startswith(source.rstrip("/") + "/")]
-        if not pool and not (source in (PRIOR_SOURCE, "live")):
+            pool = [
+                kf
+                for kf in pool
+                if keyframe_source(kf) == source
+                or keyframe_source(kf).startswith(source.rstrip("/") + "/")
+            ]
+        if not pool and source not in (PRIOR_SOURCE, "live"):
             raise UnknownSource(f"unknown source {source!r}")
     if min_ts is not None:
         pool = [kf for kf in pool if kf.timestamp_ns >= int(min_ts)]
@@ -164,12 +168,18 @@ class _ConfFiltered:
         return [d for d in self._seg.segment(image, prompts) if d.score >= self._conf]
 
     def segment_batch(self, images, prompts, fixed_batch=None):
-        return [[d for d in dets if d.score >= self._conf]
-                for dets in self._seg.segment_batch(images, prompts, fixed_batch=fixed_batch)]
+        return [
+            [d for d in dets if d.score >= self._conf]
+            for dets in self._seg.segment_batch(
+                images, prompts, fixed_batch=fixed_batch
+            )
+        ]
 
     def segment_keyframe(self, kf, rgb, prompts):
         fn = getattr(self._seg, "segment_keyframe", None)
-        dets = fn(kf, rgb, prompts) if fn is not None else self._seg.segment(rgb, prompts)
+        dets = (
+            fn(kf, rgb, prompts) if fn is not None else self._seg.segment(rgb, prompts)
+        )
         return [d for d in dets if d.score >= self._conf]
 
     def __getattr__(self, name):
@@ -179,15 +189,25 @@ class _ConfFiltered:
 class PendingCache:
     """Dry-run results awaiting a human decision: TTL'd and bounded (oldest out)."""
 
-    def __init__(self, ttl_s: float = PENDING_TTL_S, max_entries: int = PENDING_MAX,
-                 clock=time.monotonic):
-        self.ttl_s, self.max_entries, self._clock = float(ttl_s), int(max_entries), clock
+    def __init__(
+        self,
+        ttl_s: float = PENDING_TTL_S,
+        max_entries: int = PENDING_MAX,
+        clock=time.monotonic,
+    ):
+        self.ttl_s, self.max_entries, self._clock = (
+            float(ttl_s),
+            int(max_entries),
+            clock,
+        )
         self._d: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
         self._lock = threading.Lock()
 
     def _evict(self) -> None:
         now = self._clock()
-        for pid in [p for p, e in self._d.items() if now - e["created_at"] > self.ttl_s]:
+        for pid in [
+            p for p, e in self._d.items() if now - e["created_at"] > self.ttl_s
+        ]:
             del self._d[pid]
         while len(self._d) > self.max_entries:
             self._d.popitem(last=False)
@@ -210,7 +230,11 @@ class PendingCache:
     def expires_in(self, pid: str) -> float:
         with self._lock:
             e = self._d.get(pid)
-            return 0.0 if e is None else max(0.0, self.ttl_s - (self._clock() - e["created_at"]))
+            return (
+                0.0
+                if e is None
+                else max(0.0, self.ttl_s - (self._clock() - e["created_at"]))
+            )
 
     def discard(self, pid: str) -> bool:
         with self._lock:
@@ -244,8 +268,14 @@ def _view_frame_key(o):
     return None if o.keyframe is None else frame_key(o.keyframe)
 
 
-def build_candidates(discovered, existing=(), dedup_dist_m: float = 0.75,
-                     max_views: int = 3, max_dim: int = 640, render: str = "all") -> list:
+def build_candidates(
+    discovered,
+    existing=(),
+    dedup_dist_m: float = 0.75,
+    max_views: int = 3,
+    max_dim: int = 640,
+    render: str = "all",
+) -> list:
     """Per-candidate payload of a dry-run query (pure; no GPU, no DB).
 
     ``{"index", "label", "score", "centroid": [x,y,z], "bbox_min", "bbox_max",
@@ -274,45 +304,59 @@ def build_candidates(discovered, existing=(), dedup_dist_m: float = 0.75,
             if rle is None and mask is not None:
                 rle = _json.dumps(rle_encode(mask), separators=(",", ":"))
             uri = None
-            if (render == "all" or (render == "best" and j == 0)) and \
-                    o.rgb_path and os.path.exists(o.rgb_path):
+            if (
+                (render == "all" or (render == "best" and j == 0))
+                and o.rgb_path
+                and os.path.exists(o.rgb_path)
+            ):
                 try:
-                    uri = render_annotated_data_uri(o.rgb_path, max_dim=max_dim, mask=mask,
-                                                    bbox=o.bbox_2d)["uri"]
+                    uri = render_annotated_data_uri(
+                        o.rgb_path, max_dim=max_dim, mask=mask, bbox=o.bbox_2d
+                    )["uri"]
                 except Exception:
                     logger.exception("could not render %s", o.rgb_path)
             kf = o.keyframe
-            views.append({
-                "view": j,
-                "frame_key": _view_frame_key(o),
-                "source": None if kf is None else keyframe_source(kf),
-                "frame_id": None if kf is None or kf.frame_id is None else int(kf.frame_id),
-                "timestamp_ns": int(o.timestamp_ns),
-                "bbox_2d": [int(v) for v in o.bbox_2d],
-                "score": None if o.score is None else float(o.score),
-                "mask_rle": rle,
-                "mask_shape": (list(mask.shape[:2]) if mask is not None
-                               else (list(o.mask_shape) if o.mask_shape else None)),
-                "image_uri": uri,
-            })
+            views.append(
+                {
+                    "view": j,
+                    "frame_key": _view_frame_key(o),
+                    "source": None if kf is None else keyframe_source(kf),
+                    "frame_id": None
+                    if kf is None or kf.frame_id is None
+                    else int(kf.frame_id),
+                    "timestamp_ns": int(o.timestamp_ns),
+                    "bbox_2d": [int(v) for v in o.bbox_2d],
+                    "score": None if o.score is None else float(o.score),
+                    "mask_rle": rle,
+                    "mask_shape": (
+                        list(mask.shape[:2])
+                        if mask is not None
+                        else (list(o.mask_shape) if o.mask_shape else None)
+                    ),
+                    "image_uri": uri,
+                }
+            )
         keys = list(dict.fromkeys(k for k in (_view_frame_key(o) for o in ranked) if k))
         num_frames = getattr(disc, "num_frames", None)
-        out.append({
-            "index": i,
-            "label": obj.label,
-            "score": float(obj.score),
-            "centroid": [float(v) for v in obj.centroid],
-            "bbox_min": [float(v) for v in obj.bbox_min],
-            "bbox_max": [float(v) for v in obj.bbox_max],
-            "num_points": int(obj.num_points),
-            "num_views": len(disc.observations),
-            "num_frames": int(num_frames) if num_frames is not None else (
-                len(keys) or len(disc.observations)),
-            "frame_keys": keys,
-            "would_merge_into": _dedup_match(disc, existing, dedup_dist_m),
-            "image_uri": views[0]["image_uri"] if views else None,
-            "views": views,
-        })
+        out.append(
+            {
+                "index": i,
+                "label": obj.label,
+                "score": float(obj.score),
+                "centroid": [float(v) for v in obj.centroid],
+                "bbox_min": [float(v) for v in obj.bbox_min],
+                "bbox_max": [float(v) for v in obj.bbox_max],
+                "num_points": int(obj.num_points),
+                "num_views": len(disc.observations),
+                "num_frames": int(num_frames)
+                if num_frames is not None
+                else (len(keys) or len(disc.observations)),
+                "frame_keys": keys,
+                "would_merge_into": _dedup_match(disc, existing, dedup_dist_m),
+                "image_uri": views[0]["image_uri"] if views else None,
+                "views": views,
+            }
+        )
     return out
 
 
@@ -320,7 +364,9 @@ def find_live_stores(root) -> list:
     """``<root>/<robot>/<epoch>/image_store`` mirrors (the console's live store sink)."""
     if not root:
         return []
-    pattern = os.path.join(os.path.expanduser(str(root)), "*", "*", "image_store", "store.sqlite")
+    pattern = os.path.join(
+        os.path.expanduser(str(root)), "*", "*", "image_store", "store.sqlite"
+    )
     return sorted(os.path.dirname(p) for p in glob.glob(pattern))
 
 
@@ -337,7 +383,9 @@ def load_live_keyframes(root, include_subkeyframes: bool = False) -> list:
         robot, epoch = store_dir.split(os.sep)[-3:-1]
         try:
             with ImageStore.open(store_dir) as store:
-                kfs = ks.load_keyframes_from_store(store, include_subkeyframes=include_subkeyframes)
+                kfs = ks.load_keyframes_from_store(
+                    store, include_subkeyframes=include_subkeyframes
+                )
         except Exception as e:
             logger.warning("live store %s unreadable: %s", store_dir, e)
             continue
@@ -351,14 +399,32 @@ def load_live_keyframes(root, include_subkeyframes: bool = False) -> list:
 class QueryEngine:
     """Holds warm SAM3 + embedding models and the preloaded keyframes."""
 
-    def __init__(self, uri, auth, config, image_store=None,
-                 mask_output_dir=None, embed_model="siglip2", batch_size=16,
-                 include_subkeyframes=False, admission_policy=None,
-                 live_store_root=None, segmenter=None, embedding_filter=None,
-                 keyframes=None, pending_ttl_s=PENDING_TTL_S,
-                 pending_max=PENDING_MAX, feature_cache=True, feature_cache_dir=None,
-                 gpu_cache_gb=None, cpu_cache_gb=4.0, max_disk_cache_gb=64.0,
-                 build_feature_cache=True, neo4j_embeddings=True, warm_batched=False):
+    def __init__(
+        self,
+        uri,
+        auth,
+        config,
+        image_store=None,
+        mask_output_dir=None,
+        embed_model="siglip2",
+        batch_size=16,
+        include_subkeyframes=False,
+        admission_policy=None,
+        live_store_root=None,
+        segmenter=None,
+        embedding_filter=None,
+        keyframes=None,
+        pending_ttl_s=PENDING_TTL_S,
+        pending_max=PENDING_MAX,
+        feature_cache=True,
+        feature_cache_dir=None,
+        gpu_cache_gb=None,
+        cpu_cache_gb=4.0,
+        max_disk_cache_gb=64.0,
+        build_feature_cache=True,
+        neo4j_embeddings=True,
+        warm_batched=False,
+    ):
         """``segmenter`` / ``embedding_filter`` / ``keyframes`` inject ready objects
         (tests, or a caller that already holds them) instead of loading SAM3, the
         embedding model and the Neo4j keyframe pool.
@@ -378,7 +444,9 @@ class QueryEngine:
         self.config = config
         self.image_store = image_store  # list of store dirs (None: read from Neo4j)
         self.mask_output_dir = mask_output_dir
-        self.batch_size = batch_size  # fixed batch for the batched mode (avoids recompiles)
+        self.batch_size = (
+            batch_size  # fixed batch for the batched mode (avoids recompiles)
+        )
         # Serializes GPU work; queries go before the feature-cache builder.
         self._lock = GpuGate()
         self._ks = ks
@@ -394,8 +462,7 @@ class QueryEngine:
         # (None = grading disabled; writes stay candidates).
         self.admission_policy = admission_policy
         if admission_policy is not None:
-            logger.info("Admission policy active: %s",
-                        admission_policy.policy_version)
+            logger.info("Admission policy active: %s", admission_policy.policy_version)
         else:
             logger.info("Admission policy OFF: detector writes stay candidates")
 
@@ -404,12 +471,16 @@ class QueryEngine:
         else:
             from openset_query.sam3_segmenter import Sam3Segmenter
 
-            logger.info("Loading SAM3 (warm%s)...", ", compiled" if config.compile else "")
+            logger.info(
+                "Loading SAM3 (warm%s)...", ", compiled" if config.compile else ""
+            )
             self.segmenter = Sam3Segmenter(config)
             self.segmenter._ensure_loaded()
         self.warmup_s = None
         if segmenter is None and config.compile:
-            logger.info("Warming up torch.compile (one-time, can take a few minutes)...")
+            logger.info(
+                "Warming up torch.compile (one-time, can take a few minutes)..."
+            )
             t = time.time()
             self.segmenter.warm_up(n=3)
             if warm_batched:  # compile the batched path at its fixed size
@@ -425,12 +496,20 @@ class QueryEngine:
                 if not self.image_store:
                     self.image_store = ks.image_store_paths_from_db(db) or None
                 self.keyframes = self._load_pool(db)
-            logger.info("Loaded %d keyframes%s", len(self.keyframes),
-                        " (incl. subkeyframes)" if include_subkeyframes else "")
+            logger.info(
+                "Loaded %d keyframes%s",
+                len(self.keyframes),
+                " (incl. subkeyframes)" if include_subkeyframes else "",
+            )
 
         if feature_cache:
-            self._init_feature_cache(feature_cache, feature_cache_dir, gpu_cache_gb,
-                                     cpu_cache_gb, max_disk_cache_gb)
+            self._init_feature_cache(
+                feature_cache,
+                feature_cache_dir,
+                gpu_cache_gb,
+                cpu_cache_gb,
+                max_disk_cache_gb,
+            )
 
         if embedding_filter is not None:
             self.ef = embedding_filter
@@ -438,21 +517,36 @@ class QueryEngine:
             from openset_query.embedding_filter import EmbeddingFilter
 
             # Embedding cache lives next to the image store, keyed by frame_id.
-            cache = (ks.embed_cache_path(self.image_store[0], embed_model)
-                     if self.image_store else None)
-            self.ef = EmbeddingFilter(model=embed_model, device=config.device, cache_path=cache)
+            cache = (
+                ks.embed_cache_path(self.image_store[0], embed_model)
+                if self.image_store
+                else None
+            )
+            self.ef = EmbeddingFilter(
+                model=embed_model, device=config.device, cache_path=cache
+            )
         if self.keyframes:
-            logger.info("Warming embedding cache over %d keyframes...", len(self.keyframes))
+            logger.info(
+                "Warming embedding cache over %d keyframes...", len(self.keyframes)
+            )
             self._warm_embeddings()
         if self.builder is not None and build_feature_cache and self.keyframes:
             n = self.builder.enqueue(self._build_order(self.keyframes))
-            logger.info("SAM3 feature cache: %d of %d frames to build in the background",
-                        n, len(self.keyframes))
+            logger.info(
+                "SAM3 feature cache: %d of %d frames to build in the background",
+                n,
+                len(self.keyframes),
+            )
         logger.info("Query engine ready.")
 
     def _init_feature_cache(self, feature_cache, cache_dir, gpu_gb, cpu_gb, disk_gb):
         from openset_query.feature_cache import (
-            GB, CachedSegmenter, FeatureCache, FeatureCacheBuilder, TorchCodec)
+            GB,
+            CachedSegmenter,
+            FeatureCache,
+            FeatureCacheBuilder,
+            TorchCodec,
+        )
 
         seg = self.segmenter
         if not (hasattr(seg, "image_features") and hasattr(seg, "segment_features")):
@@ -467,7 +561,9 @@ class QueryEngine:
             version = seg.feature_version() if hasattr(seg, "feature_version") else "v0"
             if cache_dir is None and self.image_store:
                 cache_dir = os.path.join(str(self.image_store[0]), "cache")
-            sub = os.path.join(cache_dir, f"sam3_feats_{version}") if cache_dir else None
+            sub = (
+                os.path.join(cache_dir, f"sam3_feats_{version}") if cache_dir else None
+            )
             if gpu_gb is None:
                 gpu_gb = 4.0
                 try:
@@ -477,10 +573,13 @@ class QueryEngine:
                     gpu_gb = max(0.0, min(4.0, free / GB - 2.0))
                 except Exception:
                     pass
-            cache = FeatureCache(sub, TorchCodec(self.config.device),
-                                 gpu_budget_bytes=int(gpu_gb * GB),
-                                 cpu_budget_bytes=int(cpu_gb * GB),
-                                 max_disk_bytes=int(disk_gb * GB))
+            cache = FeatureCache(
+                sub,
+                TorchCodec(self.config.device),
+                gpu_budget_bytes=int(gpu_gb * GB),
+                cpu_budget_bytes=int(cpu_gb * GB),
+                max_disk_bytes=int(disk_gb * GB),
+            )
         self.cached = CachedSegmenter(seg, cache, frame_key)
         self.builder = FeatureCacheBuilder(self.cached, self._lock, frame_key)
         logger.info("SAM3 feature cache: %s", cache.stats())
@@ -498,19 +597,24 @@ class QueryEngine:
         """Fill the SigLIP2 cache: Neo4j node embeddings, the npz cache, then
         compute (and write back) the missing ones."""
         if not self.neo4j_embeddings or not hasattr(self.ef, "_cache"):
-            self.ef.embed_images([kf.rgb_path for kf in self.keyframes],
-                                 keys=[self.ef.frame_key(kf) for kf in self.keyframes])
+            self.ef.embed_images(
+                [kf.rgb_path for kf in self.keyframes],
+                keys=[self.ef.frame_key(kf) for kf in self.keyframes],
+            )
             return
         from openset_query.frame_embeddings import sync_pool_embeddings
 
         try:
             with self._Neo4jWrapper(self.uri, self.auth, atomic_queries=True) as db:
                 self.embedding_sources = sync_pool_embeddings(
-                    db, self.ef, self.keyframes, self.ef.frame_key)
+                    db, self.ef, self.keyframes, self.ef.frame_key
+                )
         except Exception as e:
             logger.warning("Neo4j embedding sync failed (%s); embedding locally", e)
-            self.ef.embed_images([kf.rgb_path for kf in self.keyframes],
-                                 keys=[self.ef.frame_key(kf) for kf in self.keyframes])
+            self.ef.embed_images(
+                [kf.rgb_path for kf in self.keyframes],
+                keys=[self.ef.frame_key(kf) for kf in self.keyframes],
+            )
 
     def feature_cache_status(self):
         if self.cached is None:
@@ -525,10 +629,13 @@ class QueryEngine:
     def _load_pool(self, db):
         """Keyframe pool: Neo4j Agent rows (prior map) + live mirror stores."""
         pool = self._ks.load_keyframes_from_db(
-            db, include_subkeyframes=self._include_subkeyframes)
+            db, include_subkeyframes=self._include_subkeyframes
+        )
         if self.live_store_root:
             live = load_live_keyframes(self.live_store_root, self._include_subkeyframes)
-            logger.info("live mirrors under %s: %d keyframes", self.live_store_root, len(live))
+            logger.info(
+                "live mirrors under %s: %d keyframes", self.live_store_root, len(live)
+            )
             pool = pool + live
         return pool
 
@@ -542,13 +649,11 @@ class QueryEngine:
         """
         with self._lock:
             before = len(self.keyframes)
-            with self._Neo4jWrapper(self.uri, self.auth,
-                                    atomic_queries=True) as db:
+            with self._Neo4jWrapper(self.uri, self.auth, atomic_queries=True) as db:
                 self.keyframes = self._load_pool(db)
             if self.keyframes:
                 self._warm_embeddings()
-            logger.info("reload_keyframes: %d -> %d", before,
-                        len(self.keyframes))
+            logger.info("reload_keyframes: %d -> %d", before, len(self.keyframes))
         # new frames (live mirrors, fresh Agent rows) join the feature cache in the
         # background, outside the GPU lock
         if self.builder is not None and self.keyframes:
@@ -597,8 +702,9 @@ class QueryEngine:
                 setter(old)
             self.config.conf_threshold = old
 
-    def rank(self, prompt, top_k=24, source=None, min_ts=None, thumbs=True,
-             thumb_dim=320):
+    def rank(
+        self, prompt, top_k=24, source=None, min_ts=None, thumbs=True, thumb_dim=320
+    ):
         """SigLIP2-only ranking of the pool against ``prompt`` (no SAM3): the top
         ``top_k`` keyframes with their cosine score and a JPEG thumbnail."""
         from openset_query.overlay import render_annotated_data_uri
@@ -606,40 +712,71 @@ class QueryEngine:
         t0 = time.perf_counter()
         pool = filter_pool(self.keyframes, source, min_ts)
         if not pool:
-            return {"prompt": prompt, "source": source or "all", "pool": 0, "frames": [],
-                    "elapsed_s": 0.0, "timings": {}, "note": "empty pool"}
+            return {
+                "prompt": prompt,
+                "source": source or "all",
+                "pool": 0,
+                "frames": [],
+                "elapsed_s": 0.0,
+                "timings": {},
+                "note": "empty pool",
+            }
         with self._lock:  # the embedding model shares the GPU with SAM3
             t = time.perf_counter()
             ranked = self.ef.rank(pool, [prompt])
             t_rank = time.perf_counter() - t
         t = time.perf_counter()
         frames = []
-        for i, (kf, score) in enumerate(ranked[:max(1, int(top_k))]):
+        for i, (kf, score) in enumerate(ranked[: max(1, int(top_k))]):
             uri = None
             if thumbs and kf.rgb_path and os.path.exists(kf.rgb_path):
                 try:
-                    uri = render_annotated_data_uri(kf.rgb_path, max_dim=int(thumb_dim))["uri"]
+                    uri = render_annotated_data_uri(
+                        kf.rgb_path, max_dim=int(thumb_dim)
+                    )["uri"]
                 except Exception:
                     logger.exception("could not render %s", kf.rgb_path)
             try:
                 cam = [float(v) for v in kf.camera_position]
             except Exception:
                 cam = None
-            frames.append({
-                "rank": i, "frame_key": frame_key(kf), "source": keyframe_source(kf),
-                "frame_id": None if kf.frame_id is None else int(kf.frame_id),
-                "timestamp_ns": int(kf.timestamp_ns), "score": round(float(score), 5),
-                "camera_position": cam, "thumb_uri": uri,
-            })
+            frames.append(
+                {
+                    "rank": i,
+                    "frame_key": frame_key(kf),
+                    "source": keyframe_source(kf),
+                    "frame_id": None if kf.frame_id is None else int(kf.frame_id),
+                    "timestamp_ns": int(kf.timestamp_ns),
+                    "score": round(float(score), 5),
+                    "camera_position": cam,
+                    "thumb_uri": uri,
+                }
+            )
         t_render = time.perf_counter() - t
         total = time.perf_counter() - t0
-        logger.info("RANK '%s': %d/%d frames in %.2fs", prompt, len(frames), len(pool), total)
-        return {"prompt": prompt, "source": source or "all", "pool": len(pool),
-                "frames": frames, "elapsed_s": round(total, 3),
-                "timings": {"embed_rank": round(t_rank, 3), "render": round(t_render, 3)}}
+        logger.info(
+            "RANK '%s': %d/%d frames in %.2fs", prompt, len(frames), len(pool), total
+        )
+        return {
+            "prompt": prompt,
+            "source": source or "all",
+            "pool": len(pool),
+            "frames": frames,
+            "elapsed_s": round(total, 3),
+            "timings": {"embed_rank": round(t_rank, 3), "render": round(t_render, 3)},
+        }
 
-    def frame_image(self, key=None, max_dim=1280, pending_id=None, index=None, view=0,
-                    mask_rle=None, mask_shape=None, bbox=None):
+    def frame_image(
+        self,
+        key=None,
+        max_dim=1280,
+        pending_id=None,
+        index=None,
+        view=0,
+        mask_rle=None,
+        mask_shape=None,
+        bbox=None,
+    ):
         """Keyframe ``key`` as a JPEG data URI (KeyError: not in the pool / unknown).
 
         With ``pending_id`` + ``index`` (+ ``view``, default the best) the frame is
@@ -673,16 +810,37 @@ class QueryEngine:
 
         with Image.open(kf.rgb_path) as im:
             w, h = im.size
-        return {"frame_key": key, "uri": render_annotated_data_uri(
-                    kf.rgb_path, max_dim=int(max_dim), mask=mask,
-                    bbox=None if bbox is None else tuple(int(v) for v in bbox))["uri"],
-                "width": w, "height": h, "timestamp_ns": int(kf.timestamp_ns),
-                "frame_id": None if kf.frame_id is None else int(kf.frame_id),
-                "source": keyframe_source(kf), "annotated": mask is not None}
+        return {
+            "frame_key": key,
+            "uri": render_annotated_data_uri(
+                kf.rgb_path,
+                max_dim=int(max_dim),
+                mask=mask,
+                bbox=None if bbox is None else tuple(int(v) for v in bbox),
+            )["uri"],
+            "width": w,
+            "height": h,
+            "timestamp_ns": int(kf.timestamp_ns),
+            "frame_id": None if kf.frame_id is None else int(kf.frame_id),
+            "source": keyframe_source(kf),
+            "annotated": mask is not None,
+        }
 
-    def query(self, prompt, mode="frustum", top_k=60, max_frames=60, patience=25,
-              min_ts=None, dry_run=False, source=None, conf=None, max_views=3,
-              render="all", association=None):
+    def query(
+        self,
+        prompt,
+        mode="frustum",
+        top_k=60,
+        max_frames=60,
+        patience=25,
+        min_ts=None,
+        dry_run=False,
+        source=None,
+        conf=None,
+        max_views=3,
+        render="all",
+        association=None,
+    ):
         """``source`` restricts the pool (see :func:`filter_pool`), ``conf``
         overrides SAM3's confidence threshold for this call, ``max_views`` caps the
         views per dry-run candidate and ``render`` which of them come with an image
@@ -700,8 +858,19 @@ class QueryEngine:
                 self.cached.reset_stats()
             try:
                 with self._segmenter_at(conf) as seg:
-                    out = self._query(prompt, mode, top_k, max_frames, patience, min_ts,
-                                      dry_run, source, seg, max_views, render)
+                    out = self._query(
+                        prompt,
+                        mode,
+                        top_k,
+                        max_frames,
+                        patience,
+                        min_ts,
+                        dry_run,
+                        source,
+                        seg,
+                        max_views,
+                        render,
+                    )
             finally:
                 self.config.association = old_assoc
             out.setdefault("source", source or "all")
@@ -714,8 +883,20 @@ class QueryEngine:
                     out.setdefault("timings", {})["cache_hit"] = cs["hit_rate"]
             return out
 
-    def _query(self, prompt, mode, top_k, max_frames, patience, min_ts, dry_run,
-               source, segmenter, max_views, render="all"):
+    def _query(
+        self,
+        prompt,
+        mode,
+        top_k,
+        max_frames,
+        patience,
+        min_ts,
+        dry_run,
+        source,
+        segmenter,
+        max_views,
+        render="all",
+    ):
         from openset_query import object_discovery as od
 
         t0 = time.perf_counter()
@@ -732,12 +913,18 @@ class QueryEngine:
             # measured on a revisited simulated world).
             pool = filter_pool(self.keyframes, source, min_ts)
             if not pool:
-                out = {"prompt": prompt, "objects": 0, "symbols": [],
-                       "elapsed_s": 0.0, "timings": {},
-                       "note": "empty pool after source/min_ts filter"}
+                out = {
+                    "prompt": prompt,
+                    "objects": 0,
+                    "symbols": [],
+                    "elapsed_s": 0.0,
+                    "timings": {},
+                    "note": "empty pool after source/min_ts filter",
+                }
                 if dry_run:
-                    out.update(dry_run=True, pending_id=None, candidates=[],
-                               expires_in_s=0.0)
+                    out.update(
+                        dry_run=True, pending_id=None, candidates=[], expires_in_s=0.0
+                    )
                 return out
 
             t = time.perf_counter()
@@ -749,22 +936,41 @@ class QueryEngine:
             if mode == "batched":
                 sel = [kf for kf, _ in ranked[:top_k]]
                 discovered = od.detect_batched(
-                    sel, segmenter, [prompt], self.config,
-                    mask_output_dir=self.mask_output_dir, fixed_batch=self.batch_size)
+                    sel,
+                    segmenter,
+                    [prompt],
+                    self.config,
+                    mask_output_dir=self.mask_output_dir,
+                    fixed_batch=self.batch_size,
+                )
             elif mode == "frustum":
                 discovered = od.detect_frustum_aware(
-                    ranked, segmenter, [prompt], self.config,
-                    max_frames=max_frames, patience=patience,
-                    mask_output_dir=self.mask_output_dir, views_out=views)
-                if (views and getattr(self.config, "cluster_crop_embeddings", False)
-                        and getattr(self.config, "association", "cluster") == "cluster"):
-                    discovered = od.associate(views, self.config,
-                                              od.crop_embeddings(views, self.ef))
+                    ranked,
+                    segmenter,
+                    [prompt],
+                    self.config,
+                    max_frames=max_frames,
+                    patience=patience,
+                    mask_output_dir=self.mask_output_dir,
+                    views_out=views,
+                )
+                if (
+                    views
+                    and getattr(self.config, "cluster_crop_embeddings", False)
+                    and getattr(self.config, "association", "cluster") == "cluster"
+                ):
+                    discovered = od.associate(
+                        views, self.config, od.crop_embeddings(views, self.ef)
+                    )
             else:  # "topk": sequential over the top-K frames
                 sel = [kf for kf, _ in ranked[:top_k]]
                 discovered = od.detect_in_keyframes(
-                    sel, segmenter, [prompt], self.config,
-                    mask_output_dir=self.mask_output_dir)
+                    sel,
+                    segmenter,
+                    [prompt],
+                    self.config,
+                    mask_output_dir=self.mask_output_dir,
+                )
             t_detect = time.perf_counter() - t
 
             # Score each detection crop against the target
@@ -773,15 +979,28 @@ class QueryEngine:
             t = time.perf_counter()
             if self.admission_policy is not None and discovered:
                 od.attach_crop_evidence(
-                    discovered, self.ef, prompt,
-                    self.admission_policy.calibration.control_prompts)
+                    discovered,
+                    self.ef,
+                    prompt,
+                    self.admission_policy.calibration.control_prompts,
+                )
             t_evidence = time.perf_counter() - t
 
             if dry_run:
-                out = self._dry_run_result(db, prompt, discovered, t0, {
-                    "connect": round(t_connect, 3), "embed_rank": round(t_rank, 3),
-                    "detect": round(t_detect, 3), "evidence": round(t_evidence, 3)},
-                    max_views=max_views, render=render)
+                out = self._dry_run_result(
+                    db,
+                    prompt,
+                    discovered,
+                    t0,
+                    {
+                        "connect": round(t_connect, 3),
+                        "embed_rank": round(t_rank, 3),
+                        "detect": round(t_detect, 3),
+                        "evidence": round(t_evidence, 3),
+                    },
+                    max_views=max_views,
+                    render=render,
+                )
                 out["pool"] = len(pool)
                 if views:
                     out["detections"] = len(views)
@@ -789,8 +1008,12 @@ class QueryEngine:
 
             t = time.perf_counter()
             touched = od.upsert_objects(
-                discovered, G=None, db=db, config=self.config,
-                image_store=self.image_store)
+                discovered,
+                G=None,
+                db=db,
+                config=self.config,
+                image_store=self.image_store,
+            )
             t_upsert = time.perf_counter() - t
 
             # Grade this query's candidates. Reads the object's
@@ -799,35 +1022,51 @@ class QueryEngine:
             # already-decided objects are skipped inside grade_object.
             decisions = {}
             if self.admission_policy is not None:
-                from openset_query.evidence.admission_policy import (
-                    grade_object)
+                from openset_query.evidence.admission_policy import grade_object
+
                 for sym in dict.fromkeys(touched):
                     decisions[sym] = grade_object(
-                        db, sym, self.admission_policy, prompt=prompt)
-                    logger.info("admission %s: %s (%s)", sym,
-                                decisions[sym].status,
-                                decisions[sym].reason)
+                        db, sym, self.admission_policy, prompt=prompt
+                    )
+                    logger.info(
+                        "admission %s: %s (%s)",
+                        sym,
+                        decisions[sym].status,
+                        decisions[sym].reason,
+                    )
 
         total = time.perf_counter() - t0
-        timings = {"connect": round(t_connect, 3), "embed_rank": round(t_rank, 3),
-                   "detect": round(t_detect, 3), "evidence": round(t_evidence, 3),
-                   "upsert": round(t_upsert, 3)}
+        timings = {
+            "connect": round(t_connect, 3),
+            "embed_rank": round(t_rank, 3),
+            "detect": round(t_detect, 3),
+            "evidence": round(t_evidence, 3),
+            "upsert": round(t_upsert, 3),
+        }
         logger.info("PROFILE '%s': total=%.2fs %s", prompt, total, timings)
-        return {"prompt": prompt, "objects": len(touched), "symbols": touched,
-                "elapsed_s": round(total, 2), "timings": timings,
-                "evidence": build_evidence_payload(discovered, touched,
-                                                   decisions)}
+        return {
+            "prompt": prompt,
+            "objects": len(touched),
+            "symbols": touched,
+            "elapsed_s": round(total, 2),
+            "timings": timings,
+            "evidence": build_evidence_payload(discovered, touched, decisions),
+        }
 
-
-    def _dry_run_result(self, db, prompt, discovered, t0, timings, max_views=3,
-                        render="all"):
+    def _dry_run_result(
+        self, db, prompt, discovered, t0, timings, max_views=3, render="all"
+    ):
         """Cache the detections (masks compacted to RLE) and describe them."""
         from openset_query import object_discovery as od
 
         t = time.perf_counter()
         candidates = build_candidates(
-            discovered, od._existing_objects(db, None), self.config.dedup_centroid_dist_m,
-            max_views=max(1, int(max_views)), render=render)
+            discovered,
+            od._existing_objects(db, None),
+            self.config.dedup_centroid_dist_m,
+            max_views=max(1, int(max_views)),
+            render=render,
+        )
         for disc in discovered:
             for o in disc.observations:
                 o.compact_mask()
@@ -836,12 +1075,24 @@ class QueryEngine:
             pid = self.pending.put({"prompt": prompt, "discovered": discovered})
         timings["render"] = round(time.perf_counter() - t, 3)
         total = time.perf_counter() - t0
-        logger.info("DRY RUN '%s': %d candidates (pending %s) in %.2fs",
-                    prompt, len(discovered), pid, total)
-        return {"prompt": prompt, "dry_run": True, "pending_id": pid,
-                "expires_in_s": self.pending.ttl_s if pid else 0.0,
-                "objects": len(discovered), "symbols": [], "candidates": candidates,
-                "elapsed_s": round(total, 2), "timings": timings}
+        logger.info(
+            "DRY RUN '%s': %d candidates (pending %s) in %.2fs",
+            prompt,
+            len(discovered),
+            pid,
+            total,
+        )
+        return {
+            "prompt": prompt,
+            "dry_run": True,
+            "pending_id": pid,
+            "expires_in_s": self.pending.ttl_s if pid else 0.0,
+            "objects": len(discovered),
+            "symbols": [],
+            "candidates": candidates,
+            "elapsed_s": round(total, 2),
+            "timings": timings,
+        }
 
     def commit(self, pending_id, index):
         """Write candidate ``index`` of a dry run: image-store observations + Neo4j
@@ -856,31 +1107,58 @@ class QueryEngine:
         entry = self.pending.get(pending_id)  # PendingNotFound -> 404
         index = int(index)
         if not 0 <= index < len(entry["discovered"]):
-            raise IndexError(f"index {index} out of range (0..{len(entry['discovered']) - 1})")
+            raise IndexError(
+                f"index {index} out of range (0..{len(entry['discovered']) - 1})"
+            )
         with self._lock:
             if index in entry["committed"]:
                 return dict(entry["committed"][index], already_committed=True)
             disc = entry["discovered"][index]
             with self._Neo4jWrapper(self.uri, self.auth, atomic_queries=True) as db:
                 result = {}
-                touched = od.upsert_objects([disc], G=None, db=db, config=self.config,
-                                            image_store=self.image_store, result=result)
+                touched = od.upsert_objects(
+                    [disc],
+                    G=None,
+                    db=db,
+                    config=self.config,
+                    image_store=self.image_store,
+                    result=result,
+                )
                 sym = touched[0]
                 obs_ids = [f"{sym}_{o.timestamp_ns}" for o in disc.observations]
-                admit_object(db, sym, policy_version=HUMAN_CONSOLE_POLICY,
-                             observation_ids=obs_ids)
+                admit_object(
+                    db,
+                    sym,
+                    policy_version=HUMAN_CONSOLE_POLICY,
+                    observation_ids=obs_ids,
+                )
                 state_version, map_version = notify_map_change(
-                    db, [OBJECTS_DIRTY_LAYER], [sym])
+                    db, [OBJECTS_DIRTY_LAYER], [sym]
+                )
             created = sym in result.get("created", [])
-            out = {"pending_id": pending_id, "index": index, "symbol": sym,
-                   "created": created, "merged": not created, "label": disc.obj.label,
-                   "observation_ids": obs_ids, "admission_status": ADMITTED,
-                   "policy_version": HUMAN_CONSOLE_POLICY,
-                   "state_version": state_version, "map_version": map_version,
-                   "already_committed": False}
+            out = {
+                "pending_id": pending_id,
+                "index": index,
+                "symbol": sym,
+                "created": created,
+                "merged": not created,
+                "label": disc.obj.label,
+                "observation_ids": obs_ids,
+                "admission_status": ADMITTED,
+                "policy_version": HUMAN_CONSOLE_POLICY,
+                "state_version": state_version,
+                "map_version": map_version,
+                "already_committed": False,
+            }
             entry["committed"][index] = out
-            logger.info("COMMIT %s[%d] -> %s (%s), map_version %d", pending_id, index,
-                        sym, "created" if created else "merged", map_version)
+            logger.info(
+                "COMMIT %s[%d] -> %s (%s), map_version %d",
+                pending_id,
+                index,
+                sym,
+                "created" if created else "merged",
+                map_version,
+            )
             return out
 
     def discard(self, pending_id):
@@ -904,21 +1182,24 @@ def build_evidence_payload(discovered, touched, decisions) -> dict:
         rows = by_sym.setdefault(sym, [])
         for o in disc.observations:
             controls = dict(o.control_scores or {})
-            rows.append(ObservationEvidence(
-                obs_id=f"{sym}_{o.timestamp_ns}",
-                timestamp_ns=o.timestamp_ns,
-                sam3_score=o.score,
-                target_score=o.target_score,
-                control_scores=controls,
-                depth_valid_px=o.depth_valid_px,
-                view_xyz=o.view_xyz,
-                target_prompt=o.target_prompt,
-            ).to_json())
+            rows.append(
+                ObservationEvidence(
+                    obs_id=f"{sym}_{o.timestamp_ns}",
+                    timestamp_ns=o.timestamp_ns,
+                    sam3_score=o.score,
+                    target_score=o.target_score,
+                    control_scores=controls,
+                    depth_valid_px=o.depth_valid_px,
+                    view_xyz=o.view_xyz,
+                    target_prompt=o.target_prompt,
+                ).to_json()
+            )
     return {
         sym: {
             "observations": rows,
-            "admission": (decisions[sym].to_json()
-                          if decisions.get(sym) is not None else None),
+            "admission": (
+                decisions[sym].to_json() if decisions.get(sym) is not None else None
+            ),
         }
         for sym, rows in by_sym.items()
     }
@@ -943,7 +1224,8 @@ def make_handler(engine):
             if url.path == "/health":
                 pol = engine.admission_policy
                 health = {
-                    "status": "ready", "keyframes": len(engine.keyframes),
+                    "status": "ready",
+                    "keyframes": len(engine.keyframes),
                     "admission_policy": (pol.policy_version if pol else None),
                     "pending": len(engine.pending),
                     "live_store_root": engine.live_store_root,
@@ -982,14 +1264,19 @@ def make_handler(engine):
                     if arg("index") is None:
                         self._send(400, {"error": "pending_id needs index"})
                         return
-                    kw.update(pending_id=pid, index=int(arg("index")),
-                              view=int(arg("view", 0)))
+                    kw.update(
+                        pending_id=pid,
+                        index=int(arg("index")),
+                        view=int(arg("view", 0)),
+                    )
                 elif arg("mask"):
                     shape = arg("mask_shape", "")
                     box = arg("bbox")
-                    kw.update(mask_rle=arg("mask"),
-                              mask_shape=[int(v) for v in shape.split(",") if v],
-                              bbox=[int(float(v)) for v in box.split(",")] if box else None)
+                    kw.update(
+                        mask_rle=arg("mask"),
+                        mask_shape=[int(v) for v in shape.split(",") if v],
+                        bbox=[int(float(v)) for v in box.split(",")] if box else None,
+                    )
                 try:
                     self._send(200, engine.frame_image(key or None, **kw))
                 except PendingNotFound:
@@ -1014,7 +1301,9 @@ def make_handler(engine):
                     n = int(self.headers.get("Content-Length", 0))
                     req = json.loads(self.rfile.read(n) or b"{}")
                     from openset_query.evidence.admission_policy import (
-                        load_calibration, make_admission_policy)
+                        load_calibration,
+                        make_admission_policy,
+                    )
 
                     kind = req.get("policy", "off")
                     cal = None
@@ -1024,25 +1313,34 @@ def make_handler(engine):
                         cal = engine.admission_policy.calibration
                     engine.admission_policy = make_admission_policy(kind, cal)
                     pol = engine.admission_policy
-                    logger.info("admission policy -> %s",
-                                pol.policy_version if pol else "off")
-                    self._send(200, {"admission_policy":
-                                     pol.policy_version if pol else None})
+                    logger.info(
+                        "admission policy -> %s", pol.policy_version if pol else "off"
+                    )
+                    self._send(
+                        200, {"admission_policy": pol.policy_version if pol else None}
+                    )
                 except (ValueError, FileNotFoundError) as e:
                     self._send(400, {"error": str(e)})
                 except Exception as e:
                     import traceback
+
                     traceback.print_exc()
                     self._send(500, {"error": str(e)})
                 return
             if self.path == "/reload":
                 try:
                     before, after = engine.reload_keyframes()
-                    self._send(200, {"status": "reloaded",
-                                     "keyframes_before": before,
-                                     "keyframes": after})
+                    self._send(
+                        200,
+                        {
+                            "status": "reloaded",
+                            "keyframes_before": before,
+                            "keyframes": after,
+                        },
+                    )
                 except Exception as e:
                     import traceback
+
                     traceback.print_exc()
                     self._send(500, {"error": str(e)})
                 return
@@ -1067,6 +1365,7 @@ def make_handler(engine):
                     self._send(400, {"error": str(e)})
                 except Exception as e:
                     import traceback
+
                     traceback.print_exc()
                     self._send(500, {"error": str(e)})
                 return
@@ -1078,12 +1377,17 @@ def make_handler(engine):
                         self._send(400, {"error": "empty prompt"})
                         return
                     min_ts = req.get("min_ts")
-                    self._send(200, engine.rank(
-                        prompt, top_k=int(req.get("top_k", 24)),
-                        source=req.get("source") or None,
-                        min_ts=(int(min_ts) if min_ts is not None else None),
-                        thumbs=bool(req.get("thumbs", True)),
-                        thumb_dim=int(req.get("thumb_dim", 320))))
+                    self._send(
+                        200,
+                        engine.rank(
+                            prompt,
+                            top_k=int(req.get("top_k", 24)),
+                            source=req.get("source") or None,
+                            min_ts=(int(min_ts) if min_ts is not None else None),
+                            thumbs=bool(req.get("thumbs", True)),
+                            thumb_dim=int(req.get("thumb_dim", 320)),
+                        ),
+                    )
                 except (UnknownSource, ValueError) as e:
                     self._send(400, {"error": str(e)})
                 except Exception as e:
@@ -1100,7 +1404,9 @@ def make_handler(engine):
                 if not prompt:
                     self._send(400, {"error": "empty prompt"})
                     return
-                mode = req.get("mode") or ("frustum" if req.get("frustum", True) else "topk")
+                mode = req.get("mode") or (
+                    "frustum" if req.get("frustum", True) else "topk"
+                )
                 if mode not in ("frustum", "batched", "topk"):
                     self._send(400, {"error": f"unknown mode {mode!r}"})
                     return
@@ -1120,12 +1426,16 @@ def make_handler(engine):
                     extra["max_views"] = int(req["max_views"])
                 if req.get("render") is not None:
                     if req["render"] not in RENDER_MODES:
-                        self._send(400, {"error": f"render must be one of {RENDER_MODES}"})
+                        self._send(
+                            400, {"error": f"render must be one of {RENDER_MODES}"}
+                        )
                         return
                     extra["render"] = str(req["render"])
                 if req.get("association") is not None:
                     if req["association"] not in ("cluster", "centroid"):
-                        self._send(400, {"error": "association must be cluster|centroid"})
+                        self._send(
+                            400, {"error": "association must be cluster|centroid"}
+                        )
                         return
                     extra["association"] = str(req["association"])
                 result = engine.query(
@@ -1140,13 +1450,18 @@ def make_handler(engine):
                     dry_run=bool(req.get("dry_run", False)),
                     **extra,
                 )
-                logger.info("query '%s' -> %d objects in %.2fs",
-                            prompt, result["objects"], result["elapsed_s"])
+                logger.info(
+                    "query '%s' -> %d objects in %.2fs",
+                    prompt,
+                    result["objects"],
+                    result["elapsed_s"],
+                )
                 self._send(200, result)
             except UnknownSource as e:
                 self._send(400, {"error": str(e)})
             except Exception as e:
                 import traceback
+
                 traceback.print_exc()
                 self._send(500, {"error": str(e)})
 
@@ -1161,91 +1476,175 @@ def main(argv=None):
     p.add_argument("--port", type=int, default=8077)
     p.add_argument("--device", default="cuda")
     p.add_argument("--conf", type=float, default=0.5)
-    p.add_argument("--compile", action=argparse.BooleanOptionalAction, default=False,
-                   help="torch.compile the SAM3 image trunk + pixel decoder (warmed at "
-                        "startup; speeds up feature-cache building and uncached frames)")
-    p.add_argument("--warm-batched", action="store_true",
-                   help="with --compile, also compile the batched mode at --batch-size")
-    p.add_argument("--feature-cache", action=argparse.BooleanOptionalAction, default=True,
-                   help="cache SAM3 image features per keyframe (memory + disk) and "
-                        "build them in the background")
-    p.add_argument("--feature-cache-dir", default=os.getenv("SAM3_FEATURE_CACHE_DIR"),
-                   help="disk cache root (default <first image store>/cache)")
-    p.add_argument("--gpu-cache-gb", type=float, default=None,
-                   help="GPU budget of the feature cache (default min(4, free-2) GB)")
-    p.add_argument("--cpu-cache-gb", type=float, default=4.0,
-                   help="RAM budget of the feature cache")
-    p.add_argument("--max-disk-cache-gb", type=float, default=64.0,
-                   help="stop writing features to disk past this size")
-    p.add_argument("--no-build-cache", action="store_true",
-                   help="do not precompute features in the background (cache on use)")
-    p.add_argument("--neo4j-embeddings", action=argparse.BooleanOptionalAction,
-                   default=True,
-                   help="read/write the SigLIP2 keyframe embeddings on the Neo4j nodes")
-    p.add_argument("--association", choices=["cluster", "centroid"], default="cluster",
-                   help="same-object grouping of a query's detections")
-    p.add_argument("--cluster-crop-embeddings", action="store_true",
-                   help="gate the clustering by the SigLIP2 cosine of detection crops")
+    p.add_argument(
+        "--compile",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="torch.compile the SAM3 image trunk + pixel decoder (warmed at "
+        "startup; speeds up feature-cache building and uncached frames)",
+    )
+    p.add_argument(
+        "--warm-batched",
+        action="store_true",
+        help="with --compile, also compile the batched mode at --batch-size",
+    )
+    p.add_argument(
+        "--feature-cache",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="cache SAM3 image features per keyframe (memory + disk) and "
+        "build them in the background",
+    )
+    p.add_argument(
+        "--feature-cache-dir",
+        default=os.getenv("SAM3_FEATURE_CACHE_DIR"),
+        help="disk cache root (default <first image store>/cache)",
+    )
+    p.add_argument(
+        "--gpu-cache-gb",
+        type=float,
+        default=None,
+        help="GPU budget of the feature cache (default min(4, free-2) GB)",
+    )
+    p.add_argument(
+        "--cpu-cache-gb",
+        type=float,
+        default=4.0,
+        help="RAM budget of the feature cache",
+    )
+    p.add_argument(
+        "--max-disk-cache-gb",
+        type=float,
+        default=64.0,
+        help="stop writing features to disk past this size",
+    )
+    p.add_argument(
+        "--no-build-cache",
+        action="store_true",
+        help="do not precompute features in the background (cache on use)",
+    )
+    p.add_argument(
+        "--neo4j-embeddings",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="read/write the SigLIP2 keyframe embeddings on the Neo4j nodes",
+    )
+    p.add_argument(
+        "--association",
+        choices=["cluster", "centroid"],
+        default="cluster",
+        help="same-object grouping of a query's detections",
+    )
+    p.add_argument(
+        "--cluster-crop-embeddings",
+        action="store_true",
+        help="gate the clustering by the SigLIP2 cosine of detection crops",
+    )
     p.add_argument("--embed-model", default="siglip2")
-    p.add_argument("--batch-size", type=int, default=16,
-                   help="Fixed batch size for batched mode (padded; avoids recompiles)")
-    p.add_argument("--image-store", nargs="+", default=None,
-                   help="Image store directory(ies); default $IMAGE_STORE, else the "
-                        "paths recorded in Neo4j. SAM3 observations are recorded in "
-                        "the first one.")
+    p.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        help="Fixed batch size for batched mode (padded; avoids recompiles)",
+    )
+    p.add_argument(
+        "--image-store",
+        nargs="+",
+        default=None,
+        help="Image store directory(ies); default $IMAGE_STORE, else the "
+        "paths recorded in Neo4j. SAM3 observations are recorded in "
+        "the first one.",
+    )
     p.add_argument("--mask-output-dir", default=os.getenv("MASK_OUTPUT_DIR"))
-    p.add_argument("--include-subkeyframes", action="store_true",
-                   help="Also load the denser SubKeyframe nodes into the query pool "
-                        "(~2.9x more frames; longer one-time embedding cache build)")
-    p.add_argument("--live-store-root", default=os.getenv("SAM3_LIVE_STORE_ROOT"),
-                   help="Also search the live mirrors <root>/<robot>/<epoch>/image_store "
-                        "(posed by their odometry); re-scanned on POST /reload")
-    p.add_argument("--pending-ttl", type=float, default=PENDING_TTL_S,
-                   help="Seconds a dry-run result waits for /commit")
-    p.add_argument("--admission-policy",
-                   default=os.getenv("SAM3_ADMISSION_POLICY", "off"),
-                   choices=["margin", "geometric", "off"],
-                   help="Grading of this server's candidate writes: 'margin' "
-                        "= negative-control relative-margin gate, 'geometric' = "
-                        "segmentation+geometric validation only, "
-                        "'off' = writes stay candidates")
-    p.add_argument("--admission-calibration",
-                   default=os.getenv("SAM3_ADMISSION_CALIBRATION"),
-                   help="Path to the calibration artifact JSON (required unless "
-                        "--admission-policy off; see openset_query.eval.calibrate_admission)")
+    p.add_argument(
+        "--include-subkeyframes",
+        action="store_true",
+        help="Also load the denser SubKeyframe nodes into the query pool "
+        "(~2.9x more frames; longer one-time embedding cache build)",
+    )
+    p.add_argument(
+        "--live-store-root",
+        default=os.getenv("SAM3_LIVE_STORE_ROOT"),
+        help="Also search the live mirrors <root>/<robot>/<epoch>/image_store "
+        "(posed by their odometry); re-scanned on POST /reload",
+    )
+    p.add_argument(
+        "--pending-ttl",
+        type=float,
+        default=PENDING_TTL_S,
+        help="Seconds a dry-run result waits for /commit",
+    )
+    p.add_argument(
+        "--admission-policy",
+        default=os.getenv("SAM3_ADMISSION_POLICY", "off"),
+        choices=["margin", "geometric", "off"],
+        help="Grading of this server's candidate writes: 'margin' "
+        "= negative-control relative-margin gate, 'geometric' = "
+        "segmentation+geometric validation only, "
+        "'off' = writes stay candidates",
+    )
+    p.add_argument(
+        "--admission-calibration",
+        default=os.getenv("SAM3_ADMISSION_CALIBRATION"),
+        help="Path to the calibration artifact JSON (required unless "
+        "--admission-policy off; see openset_query.eval.calibrate_admission)",
+    )
     args = p.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
     uri = os.getenv("HERACLES_NEO4J_URI", "bolt://localhost:7690")
-    auth = (os.getenv("HERACLES_NEO4J_USERNAME", "neo4j"),
-            os.getenv("HERACLES_NEO4J_PASSWORD", "testpass"))
-    config = Sam3FrontendConfig(device=args.device, conf_threshold=args.conf,
-                                compile=args.compile, association=args.association,
-                                cluster_crop_embeddings=args.cluster_crop_embeddings)
+    auth = (
+        os.getenv("HERACLES_NEO4J_USERNAME", "neo4j"),
+        os.getenv("HERACLES_NEO4J_PASSWORD", "testpass"),
+    )
+    config = Sam3FrontendConfig(
+        device=args.device,
+        conf_threshold=args.conf,
+        compile=args.compile,
+        association=args.association,
+        cluster_crop_embeddings=args.cluster_crop_embeddings,
+    )
 
     from openset_query.evidence.admission_policy import (
-        load_calibration, make_admission_policy)
+        load_calibration,
+        make_admission_policy,
+    )
 
-    calibration = (load_calibration(args.admission_calibration)
-                   if args.admission_calibration else None)
+    calibration = (
+        load_calibration(args.admission_calibration)
+        if args.admission_calibration
+        else None
+    )
     policy = make_admission_policy(args.admission_policy, calibration)
 
     image_store = args.image_store or (
-        os.environ["IMAGE_STORE"].split(os.pathsep) if os.environ.get("IMAGE_STORE") else None)
-    engine = QueryEngine(uri, auth, config, image_store=image_store,
-                         mask_output_dir=args.mask_output_dir, embed_model=args.embed_model,
-                         batch_size=args.batch_size,
-                         include_subkeyframes=args.include_subkeyframes,
-                         admission_policy=policy,
-                         live_store_root=args.live_store_root,
-                         pending_ttl_s=args.pending_ttl,
-                         feature_cache=args.feature_cache,
-                         feature_cache_dir=args.feature_cache_dir,
-                         gpu_cache_gb=args.gpu_cache_gb, cpu_cache_gb=args.cpu_cache_gb,
-                         max_disk_cache_gb=args.max_disk_cache_gb,
-                         build_feature_cache=not args.no_build_cache,
-                         neo4j_embeddings=args.neo4j_embeddings,
-                         warm_batched=args.warm_batched)
+        os.environ["IMAGE_STORE"].split(os.pathsep)
+        if os.environ.get("IMAGE_STORE")
+        else None
+    )
+    engine = QueryEngine(
+        uri,
+        auth,
+        config,
+        image_store=image_store,
+        mask_output_dir=args.mask_output_dir,
+        embed_model=args.embed_model,
+        batch_size=args.batch_size,
+        include_subkeyframes=args.include_subkeyframes,
+        admission_policy=policy,
+        live_store_root=args.live_store_root,
+        pending_ttl_s=args.pending_ttl,
+        feature_cache=args.feature_cache,
+        feature_cache_dir=args.feature_cache_dir,
+        gpu_cache_gb=args.gpu_cache_gb,
+        cpu_cache_gb=args.cpu_cache_gb,
+        max_disk_cache_gb=args.max_disk_cache_gb,
+        build_feature_cache=not args.no_build_cache,
+        neo4j_embeddings=args.neo4j_embeddings,
+        warm_batched=args.warm_batched,
+    )
     server = ThreadingHTTPServer(("0.0.0.0", args.port), make_handler(engine))
     print(f"SAM3 query server ready on http://localhost:{args.port}  (POST /query)")
     server.serve_forever()

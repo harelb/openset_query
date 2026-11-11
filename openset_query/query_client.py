@@ -1,4 +1,5 @@
 """Thin client for the warm SAM3 query server (stdlib only: no torch/SAM3 import)."""
+
 from __future__ import annotations
 
 import json
@@ -41,8 +42,12 @@ SERVING_QUERY_PATIENCE = 25
 def _post(path: str, payload: dict, timeout_s: float, base_url=None) -> dict:
     base = (base_url or sam3_base_url()).rstrip("/")
     body = json.dumps(payload).encode()
-    req = urllib.request.Request(base + path, data=body,
-                                 headers={"Content-Type": "application/json"}, method="POST")
+    req = urllib.request.Request(
+        base + path,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
         with urllib.request.urlopen(req, timeout=timeout_s) as resp:
             result = json.loads(resp.read())
@@ -52,8 +57,9 @@ def _post(path: str, payload: dict, timeout_s: float, base_url=None) -> dict:
             detail = e.read().decode("utf-8", "replace")[:300]
         except Exception:
             pass
-        raise Sam3QueryError(f"SAM3 server HTTP {e.code}: {detail or e.reason}",
-                             status=e.code)
+        raise Sam3QueryError(
+            f"SAM3 server HTTP {e.code}: {detail or e.reason}", status=e.code
+        )
     except urllib.error.URLError as e:
         raise Sam3Unavailable(f"SAM3 query server unreachable at {base} ({e.reason})")
     if isinstance(result, dict) and result.get("error"):
@@ -61,10 +67,17 @@ def _post(path: str, payload: dict, timeout_s: float, base_url=None) -> dict:
     return result
 
 
-def sam3_query(prompt, mode=SERVING_QUERY_MODE, top_k=SERVING_QUERY_TOP_K,
-               max_frames=SERVING_QUERY_MAX_FRAMES,
-               patience=SERVING_QUERY_PATIENCE, timeout_s=120.0, base_url=None,
-               min_ts=None, dry_run=False) -> dict:
+def sam3_query(
+    prompt,
+    mode=SERVING_QUERY_MODE,
+    top_k=SERVING_QUERY_TOP_K,
+    max_frames=SERVING_QUERY_MAX_FRAMES,
+    patience=SERVING_QUERY_PATIENCE,
+    timeout_s=120.0,
+    base_url=None,
+    min_ts=None,
+    dry_run=False,
+) -> dict:
     """Defaults are sent EXPLICITLY in the payload, so they -- not the server's --
     are what every caller gets. The previous batched/12/12/1 searched 12 frames and
     reported "no matches" for objects plainly present; patience=1 in particular
@@ -76,10 +89,15 @@ def sam3_query(prompt, mode=SERVING_QUERY_MODE, top_k=SERVING_QUERY_TOP_K,
     annotated JPEG data URI); confirm one with :func:`sam3_commit`, drop the rest
     with :func:`sam3_discard` (or let them expire, 10 min).
     """
-    payload = {"prompt": prompt, "mode": mode, "top_k": top_k,
-               "max_frames": max_frames, "patience": patience}
+    payload = {
+        "prompt": prompt,
+        "mode": mode,
+        "top_k": top_k,
+        "max_frames": max_frames,
+        "patience": patience,
+    }
     if min_ts is not None:
-        payload["min_ts"] = int(min_ts)   # frames at/after this ns timestamp
+        payload["min_ts"] = int(min_ts)  # frames at/after this ns timestamp
     if dry_run:
         payload["dry_run"] = True
     return _post("/query", payload, timeout_s, base_url)
@@ -90,8 +108,9 @@ def sam3_commit(pending_id: str, index: int, timeout_s=60.0, base_url=None) -> d
     both map version counters bumped). Returns ``{"symbol", "created", "merged",
     ...}``; an expired ``pending_id`` raises :class:`Sam3QueryError` with
     ``status == 404``."""
-    return _post("/commit", {"pending_id": pending_id, "index": int(index)},
-                 timeout_s, base_url)
+    return _post(
+        "/commit", {"pending_id": pending_id, "index": int(index)}, timeout_s, base_url
+    )
 
 
 def sam3_discard(pending_id: str, timeout_s=10.0, base_url=None) -> dict:

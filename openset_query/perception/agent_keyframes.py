@@ -29,7 +29,9 @@ def anchor_deviation(frame) -> float:
     T = getattr(frame, "anchor_T_body", None)
     if T is None:
         return float("inf")
-    return float(np.max(np.abs(np.asarray(T, dtype=np.float64).reshape(4, 4) - np.eye(4))))
+    return float(
+        np.max(np.abs(np.asarray(T, dtype=np.float64).reshape(4, 4) - np.eye(4)))
+    )
 
 
 def _to_ns(ts) -> Optional[int]:
@@ -94,8 +96,12 @@ def own_keyframes(frames: Iterable, node_stamp: Optional[StampFn] = None) -> lis
             continue
         ident = [f for f in cands if anchor_deviation(f) < IDENTITY_TOL]
         if ident:
-            out.append(min(ident, key=lambda f: (anchor_deviation(f), f.timestamp_ns,
-                                                f.frame_id)))
+            out.append(
+                min(
+                    ident,
+                    key=lambda f: (anchor_deviation(f), f.timestamp_ns, f.frame_id),
+                )
+            )
     out.sort(key=lambda f: (f.timestamp_ns, f.frame_id))
     return out
 

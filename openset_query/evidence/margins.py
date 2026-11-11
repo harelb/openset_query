@@ -28,6 +28,7 @@ tests/test_margins.py).
 Import contract: stdlib only at module scope (same as the rest of
 ``evidence/``).
 """
+
 from __future__ import annotations
 
 import math

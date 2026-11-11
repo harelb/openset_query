@@ -29,6 +29,7 @@ Runs in the SAM3 venv (GPU):
         --absent "a wheelbarrow" --absent "a fire hydrant" \\
         --out ~/adt4_output/calib/sam3_admission_v1.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -84,9 +85,11 @@ def load_archive_keyframes(archive_dir: str):
     if not store_dirs:
         raise SystemExit(f"no image store under {archive_dir}")
     pose_lookup = None
-    for cand in (os.path.join(archive_dir, "hydra", "backend", "dsg.json"),
-                 os.path.join(archive_dir, "backend", "dsg.json"),
-                 os.path.join(archive_dir, "dsg.json")):
+    for cand in (
+        os.path.join(archive_dir, "hydra", "backend", "dsg.json"),
+        os.path.join(archive_dir, "backend", "dsg.json"),
+        os.path.join(archive_dir, "dsg.json"),
+    ):
         if os.path.exists(cand):
             from hydra_python.image_store import load_dsg
 
@@ -105,42 +108,51 @@ def load_archive_keyframes(archive_dir: str):
     return pool
 
 
-def collect_prompt_evidence(prompt, pool, ef, segmenter, config,
-                            control_prompts, max_frames, patience):
+def collect_prompt_evidence(
+    prompt, pool, ef, segmenter, config, control_prompts, max_frames, patience
+):
     """Run the server's detection+scoring pipeline for one prompt; return the
     per-observation evidence rows and per-object view stats. NO db writes."""
-    from openset_query.evidence.margins import (
-        ObservationEvidence, view_spread_m)
+    from openset_query.evidence.margins import ObservationEvidence, view_spread_m
     from openset_query import object_discovery as od
 
     ranked = ef.rank(pool, [prompt])
     discovered = od.detect_frustum_aware(
-        ranked, segmenter, [prompt], config,
-        max_frames=max_frames, patience=patience)
+        ranked, segmenter, [prompt], config, max_frames=max_frames, patience=patience
+    )
     od.attach_crop_evidence(discovered, ef, prompt, control_prompts)
 
     rows, objects = [], []
     for i, disc in enumerate(discovered):
-        evs = [ObservationEvidence(
-                   obs_id=f"{prompt}#{i}@{o.timestamp_ns}",
-                   timestamp_ns=o.timestamp_ns, sam3_score=o.score,
-                   target_score=o.target_score,
-                   control_scores=dict(o.control_scores or {}),
-                   depth_valid_px=o.depth_valid_px, view_xyz=o.view_xyz,
-                   target_prompt=prompt)
-               for o in disc.observations]
+        evs = [
+            ObservationEvidence(
+                obs_id=f"{prompt}#{i}@{o.timestamp_ns}",
+                timestamp_ns=o.timestamp_ns,
+                sam3_score=o.score,
+                target_score=o.target_score,
+                control_scores=dict(o.control_scores or {}),
+                depth_valid_px=o.depth_valid_px,
+                view_xyz=o.view_xyz,
+                target_prompt=prompt,
+            )
+            for o in disc.observations
+        ]
         rows.extend(e.to_json() for e in evs)
         spread = view_spread_m(evs)
-        objects.append({"prompt": prompt, "n_views": len(evs),
-                        "view_spread_m": spread,
-                        "best_margin": max((e.margin for e in evs
-                                            if e.margin is not None),
-                                           default=None)})
+        objects.append(
+            {
+                "prompt": prompt,
+                "n_views": len(evs),
+                "view_spread_m": spread,
+                "best_margin": max(
+                    (e.margin for e in evs if e.margin is not None), default=None
+                ),
+            }
+        )
     return rows, objects
 
 
-def derive_thresholds(tp_margins, fp_margins, *, fp_quantile, reject_quantile,
-                      epsilon):
+def derive_thresholds(tp_margins, fp_margins, *, fp_quantile, reject_quantile, epsilon):
     """The calibration math, pure and unit-testable.
 
     ``margin_admit`` sits above the phantom population's ``fp_quantile``;
@@ -182,52 +194,89 @@ def risk_coverage_table(tp_margins, fp_margins, n_points: int = 12):
     out = []
     for i in range(n_points + 1):
         t = lo + (hi - lo) * i / n_points
-        out.append({
-            "threshold": round(t, 6),
-            "tp_kept": (sum(1 for m in tp_margins if m >= t) / len(tp_margins)
-                        if tp_margins else None),
-            "fp_admitted": (sum(1 for m in fp_margins if m >= t) / len(fp_margins)
-                            if fp_margins else None),
-        })
+        out.append(
+            {
+                "threshold": round(t, 6),
+                "tp_kept": (
+                    sum(1 for m in tp_margins if m >= t) / len(tp_margins)
+                    if tp_margins
+                    else None
+                ),
+                "fp_admitted": (
+                    sum(1 for m in fp_margins if m >= t) / len(fp_margins)
+                    if fp_margins
+                    else None
+                ),
+            }
+        )
     return out
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--archive-dir", required=True,
-                   help="Held-out map dir (holding image_store/), or the store dir")
-    p.add_argument("--present", action="append", default=[],
-                   help="Prompt for a class truly PRESENT in the archive "
-                        "(repeatable); its detections are the TP population")
-    p.add_argument("--absent", action="append", default=[],
-                   help="Prompt for a class truly ABSENT from the archive "
-                        "(repeatable); its detections are the phantom (FP) "
-                        "population")
-    p.add_argument("--control-prompt", action="append", default=[],
-                   help="Negative-control prompt (repeatable); default = the "
-                        "built-in archive-generic set")
+    p.add_argument(
+        "--archive-dir",
+        required=True,
+        help="Held-out map dir (holding image_store/), or the store dir",
+    )
+    p.add_argument(
+        "--present",
+        action="append",
+        default=[],
+        help="Prompt for a class truly PRESENT in the archive "
+        "(repeatable); its detections are the TP population",
+    )
+    p.add_argument(
+        "--absent",
+        action="append",
+        default=[],
+        help="Prompt for a class truly ABSENT from the archive "
+        "(repeatable); its detections are the phantom (FP) "
+        "population",
+    )
+    p.add_argument(
+        "--control-prompt",
+        action="append",
+        default=[],
+        help="Negative-control prompt (repeatable); default = the "
+        "built-in archive-generic set",
+    )
     p.add_argument("--out", required=True, help="Artifact JSON path")
-    p.add_argument("--report", default=None,
-                   help="Report JSON path (default: <out>.report.json)")
+    p.add_argument(
+        "--report", default=None, help="Report JSON path (default: <out>.report.json)"
+    )
     p.add_argument("--version", default="sam3_admission_v1")
     p.add_argument("--device", default="cuda")
-    p.add_argument("--conf", type=float, default=0.25,
-                   help="SAM3 confidence threshold (match the serving config)")
+    p.add_argument(
+        "--conf",
+        type=float,
+        default=0.25,
+        help="SAM3 confidence threshold (match the serving config)",
+    )
     p.add_argument("--max-frames", type=int, default=40)
     p.add_argument("--patience", type=int, default=15)
     p.add_argument("--min-views", type=int, default=2)
-    p.add_argument("--fp-quantile", type=float, default=1.0,
-                   help="FP-margin quantile margin_admit sits above (1.0 = max)")
+    p.add_argument(
+        "--fp-quantile",
+        type=float,
+        default=1.0,
+        help="FP-margin quantile margin_admit sits above (1.0 = max)",
+    )
     p.add_argument("--reject-quantile", type=float, default=0.5)
     p.add_argument("--epsilon", type=float, default=0.01)
-    p.add_argument("--spread-quantile", type=float, default=0.95,
-                   help="TP view-spread quantile for max_view_spread_m")
+    p.add_argument(
+        "--spread-quantile",
+        type=float,
+        default=0.95,
+        help="TP view-spread quantile for max_view_spread_m",
+    )
     args = p.parse_args(argv)
     if not args.present or not args.absent:
         raise SystemExit("need at least one --present and one --absent prompt")
 
-    logging.basicConfig(level=logging.INFO,
-                        format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
     from openset_query.config import Sam3FrontendConfig
     from openset_query.embedding_filter import EmbeddingFilter
     from openset_query.sam3_segmenter import Sam3Segmenter
@@ -236,9 +285,12 @@ def main(argv=None):
     config = Sam3FrontendConfig(device=args.device, conf_threshold=args.conf)
     pool = load_archive_keyframes(args.archive_dir)
     from openset_query import keyframe_store as ks
+
     cache = ks.embed_cache_path(ks.resolve_store_dirs(args.archive_dir)[0], "siglip2")
     ef = EmbeddingFilter(model="siglip2", device=args.device, cache_path=cache)
-    ef.embed_images([kf.rgb_path for kf in pool], keys=[ef.frame_key(kf) for kf in pool])
+    ef.embed_images(
+        [kf.rgb_path for kf in pool], keys=[ef.frame_key(kf) for kf in pool]
+    )
     segmenter = Sam3Segmenter(config)
     segmenter._ensure_loaded()
 
@@ -247,30 +299,53 @@ def main(argv=None):
     for kind, prompts in (("present", args.present), ("absent", args.absent)):
         for prompt in prompts:
             rows, objects = collect_prompt_evidence(
-                prompt, pool, ef, segmenter, config, controls,
-                args.max_frames, args.patience)
+                prompt,
+                pool,
+                ef,
+                segmenter,
+                config,
+                controls,
+                args.max_frames,
+                args.patience,
+            )
             for r in rows:
                 r["population"] = kind
             for o in objects:
                 o["population"] = kind
-            logger.info("%s %r: %d objects / %d observations",
-                        kind, prompt, len(objects), len(rows))
+            logger.info(
+                "%s %r: %d objects / %d observations",
+                kind,
+                prompt,
+                len(objects),
+                len(rows),
+            )
             all_rows.extend(rows)
             all_objects.extend(objects)
 
-    tp = [r["margin"] for r in all_rows
-          if r["population"] == "present" and r.get("margin") is not None]
-    fp = [r["margin"] for r in all_rows
-          if r["population"] == "absent" and r.get("margin") is not None]
+    tp = [
+        r["margin"]
+        for r in all_rows
+        if r["population"] == "present" and r.get("margin") is not None
+    ]
+    fp = [
+        r["margin"]
+        for r in all_rows
+        if r["population"] == "absent" and r.get("margin") is not None
+    ]
     thresholds = derive_thresholds(
-        tp, fp, fp_quantile=args.fp_quantile,
-        reject_quantile=args.reject_quantile, epsilon=args.epsilon)
+        tp,
+        fp,
+        fp_quantile=args.fp_quantile,
+        reject_quantile=args.reject_quantile,
+        epsilon=args.epsilon,
+    )
 
-    tp_spreads = sorted(o["view_spread_m"] for o in all_objects
-                        if o["population"] == "present"
-                        and o["view_spread_m"] is not None)
-    max_spread = (_quantile(tp_spreads, args.spread_quantile)
-                  if tp_spreads else 1.5)
+    tp_spreads = sorted(
+        o["view_spread_m"]
+        for o in all_objects
+        if o["population"] == "present" and o["view_spread_m"] is not None
+    )
+    max_spread = _quantile(tp_spreads, args.spread_quantile) if tp_spreads else 1.5
 
     artifact = {
         "version": args.version,
@@ -294,6 +369,7 @@ def main(argv=None):
     }
     # Validate through the loader contract before writing anything.
     from openset_query.evidence.admission_policy import AdmissionCalibration
+
     AdmissionCalibration.from_json(artifact)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -301,16 +377,26 @@ def main(argv=None):
         json.dump(artifact, f, indent=2, sort_keys=True)
     report_path = args.report or args.out + ".report.json"
     with open(report_path, "w") as f:
-        json.dump({
-            "artifact": artifact,
-            "risk_coverage": risk_coverage_table(tp, fp),
-            "tp_margins_n": len(tp), "fp_margins_n": len(fp),
-            "objects": all_objects,
-            "observations": all_rows,
-            "elapsed_s": round(time.time() - t0, 1),
-        }, f, indent=2, sort_keys=True)
-    logger.info("Artifact -> %s\nReport -> %s\n%s", args.out, report_path,
-                json.dumps(thresholds, indent=2))
+        json.dump(
+            {
+                "artifact": artifact,
+                "risk_coverage": risk_coverage_table(tp, fp),
+                "tp_margins_n": len(tp),
+                "fp_margins_n": len(fp),
+                "objects": all_objects,
+                "observations": all_rows,
+                "elapsed_s": round(time.time() - t0, 1),
+            },
+            f,
+            indent=2,
+            sort_keys=True,
+        )
+    logger.info(
+        "Artifact -> %s\nReport -> %s\n%s",
+        args.out,
+        report_path,
+        json.dumps(thresholds, indent=2),
+    )
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ Design invariants (do not break): decay applied only at compute_status;
 negative evidence = completed search with coverage; coverage=None never
 contradicts.
 """
+
 from __future__ import annotations
 
 import enum
@@ -45,12 +46,12 @@ class EvidenceSource(enum.Enum):
     sources the mission has but never named.
     """
 
-    COMMITTED_DSG = "committed_dsg"      # live/committed scene graph query
-    PRIOR_ARCHIVE = "prior_archive"      # tier 2a: another mission's keyframes
+    COMMITTED_DSG = "committed_dsg"  # live/committed scene graph query
+    PRIOR_ARCHIVE = "prior_archive"  # tier 2a: another mission's keyframes
     CURRENT_ARCHIVE = "current_archive"  # tier 2b: this mission's keyframes
     FRONTIER_SEARCH = "frontier_search"  # exploration-grid coverage sweep
-    INJECTED_NODE = "injected_node"      # a node this mission wrote itself
-    HUMAN = "human"                      # reserved; no producer yet
+    INJECTED_NODE = "injected_node"  # a node this mission wrote itself
+    HUMAN = "human"  # reserved; no producer yet
 
 
 # The mission's `discovered.source` strings -> EvidenceSource.
@@ -260,5 +261,4 @@ class GroundingResult:
 
 def dumps_record(obj) -> str:
     """One-line JSON for jsonl sinks (shared so key order stays stable)."""
-    return json.dumps(obj.to_json() if hasattr(obj, "to_json") else obj,
-                      sort_keys=True)
+    return json.dumps(obj.to_json() if hasattr(obj, "to_json") else obj, sort_keys=True)

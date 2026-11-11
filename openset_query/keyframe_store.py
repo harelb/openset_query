@@ -58,8 +58,14 @@ def calib_from_store(store, sensor_id: int) -> Optional[CameraCalib]:
     if c is None:
         return None
     return CameraCalib(
-        fx=c.fx, fy=c.fy, cx=c.cx, cy=c.cy, width=c.width, height=c.height,
-        depth_scale=c.depth_scale, body_T_sensor=c.body_T_sensor,
+        fx=c.fx,
+        fy=c.fy,
+        cx=c.cx,
+        cy=c.cy,
+        width=c.width,
+        height=c.height,
+        depth_scale=c.depth_scale,
+        body_T_sensor=c.body_T_sensor,
     )
 
 
@@ -69,11 +75,14 @@ def _pose_from_center_quat(center, quat_xyzw) -> np.ndarray:
     n = (x * x + y * y + z * z + w * w) ** 0.5
     if n > 0:
         x, y, z, w = x / n, y / n, z / n, w / n
-    R = np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-        [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
-        [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
-    ], dtype=np.float64)
+    R = np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+        ],
+        dtype=np.float64,
+    )
     T = np.eye(4, dtype=np.float64)
     T[:3, :3] = R
     T[:3, 3] = np.asarray([float(c) for c in center[:3]], dtype=np.float64)
@@ -99,7 +108,11 @@ def keyframe_from_frame(
         calib_cache[frame.sensor_id] = calib_from_store(store, frame.sensor_id)
     calib = calib_cache[frame.sensor_id]
     if calib is None:
-        logger.warning("No calibration for sensor %s (frame %s); skipping", frame.sensor_id, frame.frame_id)
+        logger.warning(
+            "No calibration for sensor %s (frame %s); skipping",
+            frame.sensor_id,
+            frame.frame_id,
+        )
         return None
     world_T_body, _ = store.body_pose(frame, pose_lookup)
     return Keyframe(
@@ -133,7 +146,9 @@ def load_keyframes_from_store(
 
     keyframes: List[Keyframe] = []
     calib_cache: dict = {}
-    for frame in store_keyframes(store, include_subkeyframes, stamps_from_graph(pose_lookup)):
+    for frame in store_keyframes(
+        store, include_subkeyframes, stamps_from_graph(pose_lookup)
+    ):
         kf = keyframe_from_frame(store, frame, pose_lookup, calib_cache)
         if kf is None:
             continue
@@ -162,7 +177,10 @@ def load_keyframes_from_graph(
     (used to scope a query to a region/place).
     """
     return load_keyframes_from_store(
-        store, pose_lookup=G, near_position=near_position, radius_m=radius_m,
+        store,
+        pose_lookup=G,
+        near_position=near_position,
+        radius_m=radius_m,
         include_subkeyframes=include_subkeyframes,
     )
 
@@ -225,18 +243,31 @@ def load_keyframes_from_db(
             logger.warning("No timestamp for keyframe %s; skipping", r["rgb"])
             continue
         calib = CameraCalib(
-            fx=float(r["fx"]), fy=float(r["fy"]), cx=float(r["cx"]), cy=float(r["cy"]),
-            width=int(r["width"]), height=int(r["height"]),
+            fx=float(r["fx"]),
+            fy=float(r["fy"]),
+            cx=float(r["cx"]),
+            cy=float(r["cy"]),
+            width=int(r["width"]),
+            height=int(r["height"]),
             depth_scale=float(r["depth_scale"]),
-            body_T_sensor=np.asarray(r["body_T_sensor"], dtype=np.float64).reshape(4, 4),
+            body_T_sensor=np.asarray(r["body_T_sensor"], dtype=np.float64).reshape(
+                4, 4
+            ),
         )
-        pose = _pose_from_center_quat(pos, (r["rot_x"], r["rot_y"], r["rot_z"], r["rot_w"]))
-        keyframes.append(Keyframe(
-            timestamp_ns=ts, rgb_path=r["rgb"], depth_path=r["depth"],
-            world_T_body=pose, calib=calib,
-            frame_id=None if r["frame_id"] is None else int(r["frame_id"]),
-            sensor_id=None if r["sensor_id"] is None else int(r["sensor_id"]),
-        ))
+        pose = _pose_from_center_quat(
+            pos, (r["rot_x"], r["rot_y"], r["rot_z"], r["rot_w"])
+        )
+        keyframes.append(
+            Keyframe(
+                timestamp_ns=ts,
+                rgb_path=r["rgb"],
+                depth_path=r["depth"],
+                world_T_body=pose,
+                calib=calib,
+                frame_id=None if r["frame_id"] is None else int(r["frame_id"]),
+                sensor_id=None if r["sensor_id"] is None else int(r["sensor_id"]),
+            )
+        )
 
     if masked_frame_ts:
         from openset_query.eval.masking import filter_keyframes
@@ -288,7 +319,8 @@ def image_store_paths_from_db(db) -> List[str]:
     try:
         records, _, _ = db.execute(
             "MATCH (m:_GraphMetadata {key: 'image_store'}) "
-            "RETURN m.image_store_paths AS paths")
+            "RETURN m.image_store_paths AS paths"
+        )
     except Exception as e:
         logger.warning("could not read image_store_paths from the DB: %s", e)
         return []
@@ -317,7 +349,9 @@ def rgb_by_timestamp(store_dirs, kinds=None) -> dict:
     store = ImageStore.open(*store_dirs)
     try:
         out: dict = {}
-        for f in sorted(store.frames(kind=kinds), key=lambda f: (-int(f.kind), f.timestamp_ns)):
+        for f in sorted(
+            store.frames(kind=kinds), key=lambda f: (-int(f.kind), f.timestamp_ns)
+        ):
             if f.rgb_path is not None:
                 out[int(f.timestamp_ns)] = str(f.rgb_path)
         return out

@@ -5,7 +5,6 @@ target-vs-CONTROL per crop, so an object visible in MANY true frames can never
 be rejected by a top-1-vs-top-2-frame comparison — more true frames only add
 evidence.
 """
-import math
 
 import pytest
 
@@ -17,13 +16,28 @@ from openset_query.evidence.margins import (
 )
 
 
-def _ev(obs_id="obs1", ts=1, sam3=0.9, target=0.30, controls=None, depth=500,
-        xyz=(1.0, 2.0, 0.0), prompt="a mug"):
+def _ev(
+    obs_id="obs1",
+    ts=1,
+    sam3=0.9,
+    target=0.30,
+    controls=None,
+    depth=500,
+    xyz=(1.0, 2.0, 0.0),
+    prompt="a mug",
+):
     return ObservationEvidence(
-        obs_id=obs_id, timestamp_ns=ts, sam3_score=sam3, target_score=target,
-        control_scores={"a wall": 0.10, "a floor": 0.12} if controls is None
+        obs_id=obs_id,
+        timestamp_ns=ts,
+        sam3_score=sam3,
+        target_score=target,
+        control_scores={"a wall": 0.10, "a floor": 0.12}
+        if controls is None
         else controls,
-        depth_valid_px=depth, view_xyz=xyz, target_prompt=prompt)
+        depth_valid_px=depth,
+        view_xyz=xyz,
+        target_prompt=prompt,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -50,8 +64,7 @@ def test_margin_never_compares_frames_of_the_same_object():
     one_view = [_ev(obs_id="a", ts=1, target=0.30)]
     many_views = [_ev(obs_id=str(i), ts=i, target=0.30) for i in range(1, 8)]
     assert best_margin(one_view) == pytest.approx(best_margin(many_views))
-    assert all(e.margin == pytest.approx(one_view[0].margin)
-               for e in many_views)
+    assert all(e.margin == pytest.approx(one_view[0].margin) for e in many_views)
 
 
 # ---------------------------------------------------------------------------
@@ -85,8 +98,8 @@ def test_view_spread_none_for_fewer_than_two_located_views():
 def test_json_round_trip_preserves_raw_terms_and_derives_margin():
     e = _ev(target=0.31, controls={"a wall": 0.07})
     d = e.to_json()
-    assert d["control_scores"] == {"a wall": 0.07}     # raw terms present
-    assert d["margin"] == pytest.approx(0.24)          # derived, for readers
+    assert d["control_scores"] == {"a wall": 0.07}  # raw terms present
+    assert d["margin"] == pytest.approx(0.24)  # derived, for readers
     back = ObservationEvidence.from_json(d)
     assert back == e
     assert back.margin == pytest.approx(e.margin)

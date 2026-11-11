@@ -4,6 +4,7 @@ per-request SAM3 confidence, SigLIP2-only /rank, raw /frame, richer /health.
 No GPU, no database: fake segmenter + embedding filter, and a stub Neo4j wrapper
 (the dry-run path only reads existing objects for the merge hint).
 """
+
 import json
 import threading
 import urllib.error
@@ -45,8 +46,11 @@ class ScoredSegmenter:
         self.thresholds.append(self.config.conf_threshold)
         if self.score < self.config.conf_threshold:
             return []
-        return [Detection(label=prompts[0], mask=_mask(), box=np.array(MASK_BOX),
-                          score=self.score)]
+        return [
+            Detection(
+                label=prompts[0], mask=_mask(), box=np.array(MASK_BOX), score=self.score
+            )
+        ]
 
 
 class FixedSegmenter:
@@ -56,8 +60,11 @@ class FixedSegmenter:
         self.score = score
 
     def segment(self, image, prompts):
-        return [Detection(label=prompts[0], mask=_mask(), box=np.array(MASK_BOX),
-                          score=self.score)]
+        return [
+            Detection(
+                label=prompts[0], mask=_mask(), box=np.array(MASK_BOX), score=self.score
+            )
+        ]
 
 
 class RankEF:
@@ -70,7 +77,9 @@ class RankEF:
         return None
 
     def rank(self, pool, prompts):
-        return sorted(((kf, 1e-4 * kf.timestamp_ns) for kf in pool), key=lambda t: -t[1])
+        return sorted(
+            ((kf, 1e-4 * kf.timestamp_ns) for kf in pool), key=lambda t: -t[1]
+        )
 
 
 class StubDB:
@@ -92,8 +101,12 @@ def _pool(tmp_path):
     for i in range(3):
         T = np.eye(4)
         T[0, 3] = 0.05 * i
-        prior.frame(1000 + i, color=(40 * i, 200, 30),
-                    anchor=image_store.make_node_id("a", i), pose=T)
+        prior.frame(
+            1000 + i,
+            color=(40 * i, 200, 30),
+            anchor=image_store.make_node_id("a", i),
+            pose=T,
+        )
     prior_dir = prior.close()
     live_root = tmp_path / "live"
     lb = build_store(live_root / "robot1" / "1760000000" / "image_store")
@@ -112,9 +125,16 @@ def _pool(tmp_path):
 def engine(tmp_path):
     prior_dir, kfs, live_root = _pool(tmp_path)
     cfg = Sam3FrontendConfig(device="cpu", conf_threshold=0.5)
-    eng = qs.QueryEngine("bolt://unused", ("u", "p"), cfg, image_store=[str(prior_dir)],
-                         segmenter=ScoredSegmenter(cfg), embedding_filter=RankEF(),
-                         keyframes=kfs, live_store_root=live_root)
+    eng = qs.QueryEngine(
+        "bolt://unused",
+        ("u", "p"),
+        cfg,
+        image_store=[str(prior_dir)],
+        segmenter=ScoredSegmenter(cfg),
+        embedding_filter=RankEF(),
+        keyframes=kfs,
+        live_store_root=live_root,
+    )
     eng._Neo4jWrapper = StubDB
     return eng
 
@@ -122,8 +142,10 @@ def engine(tmp_path):
 @pytest.mark.adt4
 def test_sources_and_filter_pool(engine):
     src = engine.sources()
-    assert src == [{"id": "prior", "keyframes": 3},
-                   {"id": "live/robot1/1760000000", "keyframes": 1}]
+    assert src == [
+        {"id": "prior", "keyframes": 3},
+        {"id": "live/robot1/1760000000", "keyframes": 1},
+    ]
     kfs = engine.keyframes
     assert len(qs.filter_pool(kfs)) == 4 and len(qs.filter_pool(kfs, "all")) == 4
     assert {qs.keyframe_source(k) for k in qs.filter_pool(kfs, "prior")} == {"prior"}
@@ -156,7 +178,9 @@ def test_conf_override_is_per_request(engine):
 
 @pytest.mark.adt4
 def test_max_views_caps_rendered_views(engine):
-    r = engine.query("mug", mode="topk", dry_run=True, conf=0.3, source="prior", max_views=1)
+    r = engine.query(
+        "mug", mode="topk", dry_run=True, conf=0.3, source="prior", max_views=1
+    )
     (c,) = r["candidates"]
     assert c["num_views"] == 3 and len(c["views"]) == 1
 
@@ -169,9 +193,14 @@ def test_rank_returns_scores_and_thumbs_without_sam3(engine):
     assert r["pool"] == 4 and len(r["frames"]) == 2
     f0, f1 = r["frames"]
     assert f0["rank"] == 0 and f0["score"] >= f1["score"]
-    assert f0["source"].startswith("live/") and f0["frame_key"].startswith("live/robot1")
+    assert f0["source"].startswith("live/") and f0["frame_key"].startswith(
+        "live/robot1"
+    )
     assert f0["thumb_uri"].startswith("data:image/jpeg;base64,")
-    assert len(f0["camera_position"]) == 3 and set(r["timings"]) == {"embed_rank", "render"}
+    assert len(f0["camera_position"]) == 3 and set(r["timings"]) == {
+        "embed_rank",
+        "render",
+    }
     r = engine.rank("mug", top_k=10, source="prior", thumbs=False)
     assert len(r["frames"]) == 3 and all(f["thumb_uri"] is None for f in r["frames"])
     json.dumps(r)
@@ -181,7 +210,10 @@ def test_rank_returns_scores_and_thumbs_without_sam3(engine):
 def test_frame_image(engine):
     key = qs.frame_key(engine.keyframes[0])
     out = engine.frame_image(key, max_dim=32)
-    assert out["uri"].startswith("data:image/jpeg") and (out["width"], out["height"]) == (W, H)
+    assert out["uri"].startswith("data:image/jpeg") and (
+        out["width"],
+        out["height"],
+    ) == (W, H)
     with pytest.raises(KeyError):
         engine.frame_image("f999999")
 
@@ -196,8 +228,12 @@ def http(engine):
 
 def _req(url, path, body=None):
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(url + path, data=data, method="GET" if body is None else "POST",
-                                 headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        url + path,
+        data=data,
+        method="GET" if body is None else "POST",
+        headers={"Content-Type": "application/json"},
+    )
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             return r.status, json.loads(r.read())
@@ -222,12 +258,29 @@ def test_http_routes(http):
     assert code == 200 and f["uri"].startswith("data:image/jpeg")
     assert _req(url, "/frame?key=nope")[0] == 404 and _req(url, "/frame")[0] == 400
 
-    code, q = _req(url, "/query", {"prompt": "mug", "mode": "topk", "dry_run": True,
-                                   "conf": 0.3, "source": "prior", "max_views": 2})
-    assert code == 200 and len(q["candidates"]) == 1 and len(q["candidates"][0]["views"]) == 2
+    code, q = _req(
+        url,
+        "/query",
+        {
+            "prompt": "mug",
+            "mode": "topk",
+            "dry_run": True,
+            "conf": 0.3,
+            "source": "prior",
+            "max_views": 2,
+        },
+    )
+    assert (
+        code == 200
+        and len(q["candidates"]) == 1
+        and len(q["candidates"][0]["views"]) == 2
+    )
     assert q["pending_id"] and q["conf"] == 0.3
     assert _req(url, "/query", {"prompt": "mug", "conf": 1.5})[0] == 400
     assert _req(url, "/query", {"prompt": "mug", "mode": "nope"})[0] == 400
-    assert _req(url, "/query", {"prompt": "mug", "source": "live/nobody",
-                                "dry_run": True})[0] == 400
-
+    assert (
+        _req(
+            url, "/query", {"prompt": "mug", "source": "live/nobody", "dry_run": True}
+        )[0]
+        == 400
+    )

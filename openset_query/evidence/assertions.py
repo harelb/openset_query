@@ -11,6 +11,7 @@ assumed without adequate certification: the query to resolve, the verification
 mechanism chosen to resolve it (a versioned skill-contract name, e.g.
 ``reprocess_memory`` / ``acquire_view``), and its lifecycle state.
 """
+
 from __future__ import annotations
 
 import enum
@@ -42,8 +43,8 @@ class Assertion:
     reason: ReasonCode
     computed_at_ns: int
     belief: float | None = None
-    supporting: tuple = ()        # evidence_ids
-    contradicting: tuple = ()     # evidence_ids
+    supporting: tuple = ()  # evidence_ids
+    contradicting: tuple = ()  # evidence_ids
     freshness_s: float | None = None
     scope: dict = field(default_factory=dict)
     policy_version: str | None = None
@@ -148,7 +149,7 @@ class EvidenceObligation:
     mechanism: str
     created_at_ns: int
     status: ObligationStatus = ObligationStatus.OPEN
-    assertion_id: str | None = None    # the Assertion this must update
+    assertion_id: str | None = None  # the Assertion this must update
     resolved_at_ns: int | None = None
     estimated_cost: dict = field(default_factory=dict)
     provenance: dict = field(default_factory=dict)
@@ -174,12 +175,14 @@ class EvidenceObligation:
         )
 
     def resolved(self, resolved_at_ns: int) -> "EvidenceObligation":
-        return replace(self, status=ObligationStatus.RESOLVED,
-                       resolved_at_ns=int(resolved_at_ns))
+        return replace(
+            self, status=ObligationStatus.RESOLVED, resolved_at_ns=int(resolved_at_ns)
+        )
 
     def failed(self, resolved_at_ns: int) -> "EvidenceObligation":
-        return replace(self, status=ObligationStatus.FAILED,
-                       resolved_at_ns=int(resolved_at_ns))
+        return replace(
+            self, status=ObligationStatus.FAILED, resolved_at_ns=int(resolved_at_ns)
+        )
 
     def to_json(self) -> dict:
         return {

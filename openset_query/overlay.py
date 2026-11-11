@@ -3,6 +3,7 @@
 Dependency-light on purpose (numpy + Pillow + stdlib only): the chat process has
 no torch/rerun/SAM3, but still needs to bake SAM3 masks/boxes into images.
 """
+
 from __future__ import annotations
 
 import base64
@@ -17,9 +18,15 @@ DEFAULT_ALPHA = 0.45
 DEFAULT_THICKNESS = 2
 
 
-def annotate_rgb(rgb, mask_path=None, bbox=None,
-                 color=DEFAULT_COLOR, alpha=DEFAULT_ALPHA, thickness=DEFAULT_THICKNESS,
-                 mask=None):
+def annotate_rgb(
+    rgb,
+    mask_path=None,
+    bbox=None,
+    color=DEFAULT_COLOR,
+    alpha=DEFAULT_ALPHA,
+    thickness=DEFAULT_THICKNESS,
+    mask=None,
+):
     """Return a new uint8 RGB array with the mask tinted and/or the bbox outlined.
 
     The mask is either a boolean/uint8 ``mask`` array (e.g. ``ImageStore.mask(obs)``)
@@ -43,20 +50,28 @@ def annotate_rgb(rgb, mask_path=None, bbox=None,
     if bbox:
         h, w = out.shape[:2]
         x0, y0, x1, y1 = bbox
-        x0 = max(0, min(w - 1, int(x0))); x1 = max(0, min(w - 1, int(x1)))
-        y0 = max(0, min(h - 1, int(y0))); y1 = max(0, min(h - 1, int(y1)))
+        x0 = max(0, min(w - 1, int(x0)))
+        x1 = max(0, min(w - 1, int(x1)))
+        y0 = max(0, min(h - 1, int(y0)))
+        y1 = max(0, min(h - 1, int(y1)))
         c = np.array(color, dtype=np.uint8)
         t = max(1, int(thickness))
-        out[y0:y0 + t, x0:x1 + 1] = c
-        out[max(0, y1 - t + 1):y1 + 1, x0:x1 + 1] = c
-        out[y0:y1 + 1, x0:x0 + t] = c
-        out[y0:y1 + 1, max(0, x1 - t + 1):x1 + 1] = c
+        out[y0 : y0 + t, x0 : x1 + 1] = c
+        out[max(0, y1 - t + 1) : y1 + 1, x0 : x1 + 1] = c
+        out[y0 : y1 + 1, x0 : x0 + t] = c
+        out[y0 : y1 + 1, max(0, x1 - t + 1) : x1 + 1] = c
     return out
 
 
-def render_annotated_data_uri(rgb_path, max_dim=512,
-                              color=DEFAULT_COLOR, alpha=DEFAULT_ALPHA,
-                              mask=None, mask_path=None, bbox=None) -> dict:
+def render_annotated_data_uri(
+    rgb_path,
+    max_dim=512,
+    color=DEFAULT_COLOR,
+    alpha=DEFAULT_ALPHA,
+    mask=None,
+    mask_path=None,
+    bbox=None,
+) -> dict:
     """Composite an observation's mask/bbox onto an RGB frame and return a base64
     JPEG data URI. The mask/bbox come from the caller (the object's ``Observation``:
     ``ImageStore.mask(obs)`` / ``obs.mask_path`` and ``obs.bbox2d``); ``annotated`` is
@@ -66,12 +81,20 @@ def render_annotated_data_uri(rgb_path, max_dim=512,
     has_mask = mask is not None or bool(mask_path and os.path.exists(mask_path))
     bbox = tuple(bbox) if bbox is not None and len(bbox) >= 4 else None
     if has_mask or bbox:
-        arr = annotate_rgb(arr, mask_path=mask_path if has_mask else None, mask=mask,
-                           bbox=bbox, color=color, alpha=alpha)
+        arr = annotate_rgb(
+            arr,
+            mask_path=mask_path if has_mask else None,
+            mask=mask,
+            bbox=bbox,
+            color=color,
+            alpha=alpha,
+        )
     out = Image.fromarray(arr)
     if max(out.size) > max_dim:
         scale = max_dim / max(out.size)
-        out = out.resize((int(out.width * scale), int(out.height * scale)), Image.LANCZOS)
+        out = out.resize(
+            (int(out.width * scale), int(out.height * scale)), Image.LANCZOS
+        )
     buf = io.BytesIO()
     out.save(buf, format="JPEG")
     uri = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("utf-8")

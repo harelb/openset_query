@@ -311,9 +311,12 @@ class SigLip2Embedder:
         # variable-resolution models (e.g. naflex) receive correctly shaped inputs.
         import torch as _t
         from PIL import Image as _PILImage  # noqa: PLC0415
+
         dummy_img = _PILImage.new("RGB", (224, 224))
         inputs = processor(images=[dummy_img], return_tensors="pt")
-        inputs = {k: v.to(model.device) for k, v in inputs.items() if isinstance(v, _t.Tensor)}
+        inputs = {
+            k: v.to(model.device) for k, v in inputs.items() if isinstance(v, _t.Tensor)
+        }
         with _t.no_grad():
             out = model.get_image_features(**inputs)
         tensor_out = _unpack_model_output(out, _t)
@@ -323,7 +326,11 @@ class SigLip2Embedder:
         """Return an (N, dim) L2-normalized float32 array."""
         pil_images = [_load_image(ref) for ref in images]
         inputs = self._processor(images=pil_images, return_tensors="pt")
-        inputs = {k: v.to(self._device) for k, v in inputs.items() if isinstance(v, _torch_transformers.Tensor)}
+        inputs = {
+            k: v.to(self._device)
+            for k, v in inputs.items()
+            if isinstance(v, _torch_transformers.Tensor)
+        }
         with _torch_transformers.no_grad():
             out = self._model.get_image_features(**inputs)
         features = _unpack_model_output(out, _torch_transformers).float().cpu().numpy()
@@ -334,7 +341,11 @@ class SigLip2Embedder:
         inputs = self._processor(
             text=list(texts), return_tensors="pt", padding=True, truncation=True
         )
-        inputs = {k: v.to(self._device) for k, v in inputs.items() if isinstance(v, _torch_transformers.Tensor)}
+        inputs = {
+            k: v.to(self._device)
+            for k, v in inputs.items()
+            if isinstance(v, _torch_transformers.Tensor)
+        }
         with _torch_transformers.no_grad():
             out = self._model.get_text_features(**inputs)
         features = _unpack_model_output(out, _torch_transformers).float().cpu().numpy()

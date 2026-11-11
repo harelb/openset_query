@@ -4,7 +4,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from openset_query.perception.embedders import StubEmbedder, OpenClipEmbedder, SigLip2Embedder
+from openset_query.perception.embedders import (
+    StubEmbedder,
+    OpenClipEmbedder,
+    SigLip2Embedder,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +61,9 @@ def test_stub_embed_image_accepts_pil():
 
 @pytest.mark.gpu
 def test_openclip_smoke():
-    e = OpenClipEmbedder(model_name="ViT-B-32", pretrained="laion2b_s34b_b79k", device="cpu")
+    e = OpenClipEmbedder(
+        model_name="ViT-B-32", pretrained="laion2b_s34b_b79k", device="cpu"
+    )
     v_text = e.embed_text(["a photo of a chair"])
     v_img = e.embed_images([Image.new("RGB", (224, 224), color=(128, 128, 128))])
     assert v_text.shape[1] == e.dim

@@ -14,6 +14,7 @@ is any iterable of objects with ``.queries``
 (the planner's ``SkeletonRequirement``
 qualifies, as does the original PlanSketch).
 """
+
 from __future__ import annotations
 
 from .types import EpistemicStatus
@@ -35,8 +36,9 @@ class MostUncertainPredicatePolicy:
 
     name = "most-uncertain"
 
-    def choose_next_query(self, results, available_operators=(), cost_fn=None,
-                          plans=None):
+    def choose_next_query(
+        self, results, available_operators=(), cost_fn=None, plans=None
+    ):
         unknowns = _unknowns(results)
         if not unknowns:
             return None
@@ -49,8 +51,9 @@ class CheapestGroundingPolicy:
 
     name = "cheapest"
 
-    def choose_next_query(self, results, available_operators=(), cost_fn=None,
-                          plans=None):
+    def choose_next_query(
+        self, results, available_operators=(), cost_fn=None, plans=None
+    ):
         unknowns = _unknowns(results)
         if not unknowns:
             return None
@@ -82,8 +85,9 @@ class PlanDisambiguationPolicy:
 
     name = "plan-disambiguation"
 
-    def choose_next_query(self, results, available_operators=(), cost_fn=None,
-                          plans=None):
+    def choose_next_query(
+        self, results, available_operators=(), cost_fn=None, plans=None
+    ):
         unknowns = _unknowns(results)
         if not unknowns:
             return None
@@ -97,14 +101,16 @@ class PlanDisambiguationPolicy:
             dead = any(
                 by_key.get(q.key()) is not None
                 and by_key[q.key()].status is EpistemicStatus.CONTRADICTED
-                for q in plan.queries)
+                for q in plan.queries
+            )
             if not dead:
                 live_plans.append(plan)
 
         def relevance(res):
             key = res.query.key()
-            return sum(1 for plan in live_plans
-                       if any(q.key() == key for q in plan.queries))
+            return sum(
+                1 for plan in live_plans if any(q.key() == key for q in plan.queries)
+            )
 
         scored = [(relevance(r), _uncertainty(r), r) for r in unknowns]
         scored = [s for s in scored if s[0] > 0]
@@ -115,7 +121,10 @@ class PlanDisambiguationPolicy:
 
 
 POLICIES = {
-    p.name: p for p in (MostUncertainPredicatePolicy(),
-                        CheapestGroundingPolicy(),
-                        PlanDisambiguationPolicy())
+    p.name: p
+    for p in (
+        MostUncertainPredicatePolicy(),
+        CheapestGroundingPolicy(),
+        PlanDisambiguationPolicy(),
+    )
 }

@@ -30,8 +30,9 @@ def index_name(label: str, prop: str = EMB_PROP) -> str:
     return f"{label.lower()}_{prop}"
 
 
-def ensure_vector_indexes(db, dim: int, labels: Sequence[str] = FRAME_LABELS,
-                          prop: str = EMB_PROP) -> list:
+def ensure_vector_indexes(
+    db, dim: int, labels: Sequence[str] = FRAME_LABELS, prop: str = EMB_PROP
+) -> list:
     """Create the cosine vector index on ``prop`` for each label (idempotent)."""
     names = []
     for label in labels:
@@ -39,13 +40,16 @@ def ensure_vector_indexes(db, dim: int, labels: Sequence[str] = FRAME_LABELS,
         db.execute(
             f"CREATE VECTOR INDEX {name} IF NOT EXISTS FOR (n:{label}) ON (n.{prop}) "
             "OPTIONS {indexConfig: {`vector.dimensions`: $dim, "
-            "`vector.similarity_function`: 'cosine'}}", dim=int(dim))
+            "`vector.similarity_function`: 'cosine'}}",
+            dim=int(dim),
+        )
         names.append(name)
     return names
 
 
-def load_frame_embeddings(db, model_id: str, labels: Sequence[str] = FRAME_LABELS
-                          ) -> Dict[int, np.ndarray]:
+def load_frame_embeddings(
+    db, model_id: str, labels: Sequence[str] = FRAME_LABELS
+) -> Dict[int, np.ndarray]:
     """``{frame_id: embedding (float32, L2-normalised)}`` of the keyframe nodes
     embedded with ``model_id``."""
     out: Dict[int, np.ndarray] = {}
@@ -53,7 +57,8 @@ def load_frame_embeddings(db, model_id: str, labels: Sequence[str] = FRAME_LABEL
         records, _, _ = db.execute(
             f"MATCH (a:{label}) WHERE a.frame_id IS NOT NULL AND a.{EMB_PROP} IS NOT NULL "
             f"AND a.{MODEL_PROP} = $m RETURN a.frame_id AS fid, a.{EMB_PROP} AS v",
-            m=model_id)
+            m=model_id,
+        )
         for r in records:
             v = np.asarray(r["v"], dtype=np.float32)
             n = float(np.linalg.norm(v))
@@ -62,20 +67,29 @@ def load_frame_embeddings(db, model_id: str, labels: Sequence[str] = FRAME_LABEL
     return out
 
 
-def write_frame_embeddings(db, rows: Iterable[Tuple[int, np.ndarray]], model_id: str,
-                           labels: Sequence[str] = FRAME_LABELS, batch: int = 256) -> int:
+def write_frame_embeddings(
+    db,
+    rows: Iterable[Tuple[int, np.ndarray]],
+    model_id: str,
+    labels: Sequence[str] = FRAME_LABELS,
+    batch: int = 256,
+) -> int:
     """Set ``siglip2_emb`` / ``siglip2_model`` on the keyframe nodes of ``rows``
     (``(frame_id, vector)``). Returns the number of nodes written."""
-    rows = [{"fid": int(f), "v": [float(x) for x in np.asarray(v, dtype=np.float64)]}
-            for f, v in rows]
+    rows = [
+        {"fid": int(f), "v": [float(x) for x in np.asarray(v, dtype=np.float64)]}
+        for f, v in rows
+    ]
     n = 0
     for i in range(0, len(rows), batch):
-        chunk = rows[i:i + batch]
+        chunk = rows[i : i + batch]
         for label in labels:
             records, _, _ = db.execute(
                 f"UNWIND $rows AS r MATCH (a:{label} {{frame_id: r.fid}}) "
                 f"SET a.{EMB_PROP} = r.v, a.{MODEL_PROP} = $m RETURN count(a) AS n",
-                rows=chunk, m=model_id)
+                rows=chunk,
+                m=model_id,
+            )
             n += int(records[0]["n"]) if records else 0
     return n
 
@@ -83,12 +97,13 @@ def write_frame_embeddings(db, rows: Iterable[Tuple[int, np.ndarray]], model_id:
 def ensure_frame_id_indexes(db, labels: Sequence[str] = FRAME_LABELS) -> None:
     """Range index on ``frame_id`` so the write-back MATCH is not a label scan."""
     for label in labels:
-        db.execute(f"CREATE INDEX {label.lower()}_frame_id IF NOT EXISTS "
-                   f"FOR (n:{label}) ON (n.frame_id)")
+        db.execute(
+            f"CREATE INDEX {label.lower()}_frame_id IF NOT EXISTS "
+            f"FOR (n:{label}) ON (n.frame_id)"
+        )
 
 
-def query_vector_index(db, vec, k: int, labels: Sequence[str] = FRAME_LABELS
-                       ) -> list:
+def query_vector_index(db, vec, k: int, labels: Sequence[str] = FRAME_LABELS) -> list:
     """Top-``k`` ``(frame_id, score)`` over the keyframe vector indexes (merged).
     Neo4j's cosine score is ``(1 + cos) / 2``; returned as the raw cosine."""
     v = [float(x) for x in np.asarray(vec, dtype=np.float64)]
@@ -96,14 +111,23 @@ def query_vector_index(db, vec, k: int, labels: Sequence[str] = FRAME_LABELS
     for label in labels:
         records, _, _ = db.execute(
             f"CALL db.index.vector.queryNodes('{index_name(label)}', $k, $v) "
-            "YIELD node, score RETURN node.frame_id AS fid, score", k=int(k), v=v)
+            "YIELD node, score RETURN node.frame_id AS fid, score",
+            k=int(k),
+            v=v,
+        )
         out.extend((int(r["fid"]), 2.0 * float(r["score"]) - 1.0) for r in records)
     out.sort(key=lambda t: -t[1])
     return out[:k]
 
 
-def sync_pool_embeddings(db, ef, keyframes, key_fn, write_back: bool = True,
-                         log: Optional[logging.Logger] = None) -> dict:
+def sync_pool_embeddings(
+    db,
+    ef,
+    keyframes,
+    key_fn,
+    write_back: bool = True,
+    log: Optional[logging.Logger] = None,
+) -> dict:
     """Fill ``ef``'s embedding cache for ``keyframes``: Neo4j first, then its npz
     cache (already loaded), then compute the rest; write the prior-map frames
     Neo4j lacks back onto their nodes and ensure the vector indexes.
@@ -112,8 +136,12 @@ def sync_pool_embeddings(db, ef, keyframes, key_fn, write_back: bool = True,
     Returns counts ``{"neo4j", "npz", "computed", "written"}``.
     """
     log = log or logger
-    prior = [kf for kf in keyframes if getattr(kf, "cache_ns", None) is None
-             and getattr(kf, "frame_id", None) is not None]
+    prior = [
+        kf
+        for kf in keyframes
+        if getattr(kf, "cache_ns", None) is None
+        and getattr(kf, "frame_id", None) is not None
+    ]
     stats = {"neo4j": 0, "npz": 0, "computed": 0, "written": 0}
     db_emb: Dict[int, np.ndarray] = {}
     if db is not None and prior:
@@ -135,8 +163,11 @@ def sync_pool_embeddings(db, ef, keyframes, key_fn, write_back: bool = True,
         ef.embed_images([kf.rgb_path for kf in keyframes], keys=keys)
     stats["computed"] = sum(1 for k in keys if k in ef._cache and k not in before)
     if db is not None and write_back:
-        missing = [(int(kf.frame_id), ef._cache[key_fn(kf)]) for kf in prior
-                   if int(kf.frame_id) not in db_emb and key_fn(kf) in ef._cache]
+        missing = [
+            (int(kf.frame_id), ef._cache[key_fn(kf)])
+            for kf in prior
+            if int(kf.frame_id) not in db_emb and key_fn(kf) in ef._cache
+        ]
         try:
             if missing:
                 ensure_frame_id_indexes(db)
@@ -146,6 +177,11 @@ def sync_pool_embeddings(db, ef, keyframes, key_fn, write_back: bool = True,
                 ensure_vector_indexes(db, int(np.asarray(any_vec).shape[-1]))
         except Exception as e:
             log.warning("could not write SigLIP2 embeddings to Neo4j: %s", e)
-    log.info("SigLIP2 embeddings: %d from Neo4j, %d from npz, %d computed, %d written back",
-             stats["neo4j"], stats["npz"], stats["computed"], stats["written"])
+    log.info(
+        "SigLIP2 embeddings: %d from Neo4j, %d from npz, %d computed, %d written back",
+        stats["neo4j"],
+        stats["npz"],
+        stats["computed"],
+        stats["written"],
+    )
     return stats

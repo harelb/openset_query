@@ -10,15 +10,17 @@ point them at a THROWAWAY database; every test wipes it. Example:
 Acceptance: ingest -> wipe (initialize_db) -> re-ingest + JSONL re-import
 reproduces identical assertion statuses.
 """
-import json
+
 import os
 
 import pytest
 
 _NEO4J_ENV_URI = os.environ.get("NEO4J_URI", "")
 if not _NEO4J_ENV_URI:
-    pytest.skip("Skipping: NEO4J_URI env var is not set (throwaway DB required).",
-                allow_module_level=True)
+    pytest.skip(
+        "Skipping: NEO4J_URI env var is not set (throwaway DB required).",
+        allow_module_level=True,
+    )
 
 from heracles.graph_interface import (  # noqa: E402
     initialize_db,
@@ -53,10 +55,19 @@ def _count(db, cypher, **kw):
 
 def _frame(sym, ts):
     return {
-        "nodeSymbol": sym, "timestamp_ns": ts, "path": f"/data/{sym}.jpg",
-        "pos_x": 0.0, "pos_y": 0.0, "pos_z": 0.0,
-        "pose_qw": 1.0, "pose_qx": 0.0, "pose_qy": 0.0, "pose_qz": 0.0,
-        "place_id": None, "embedding": None, "embedding_dim": None,
+        "nodeSymbol": sym,
+        "timestamp_ns": ts,
+        "path": f"/data/{sym}.jpg",
+        "pos_x": 0.0,
+        "pos_y": 0.0,
+        "pos_z": 0.0,
+        "pose_qw": 1.0,
+        "pose_qx": 0.0,
+        "pose_qy": 0.0,
+        "pose_qz": 0.0,
+        "place_id": None,
+        "embedding": None,
+        "embedding_dim": None,
         "embedding_model": None,
     }
 
@@ -65,23 +76,48 @@ def _ingest(db):
     """One wipe + minimal scene: 3 frames, one backpack with 2 scored views."""
     initialize_db(db)
     insert_trajectory_frames_to_db(
-        db, [_frame("F(1)", 100), _frame("F(2)", 200), _frame("F(3)", 300)])
+        db, [_frame("F(1)", 100), _frame("F(2)", 200), _frame("F(3)", 300)]
+    )
     db.execute(
         "MERGE (o:Object {nodeSymbol: 'O(1)'}) "
-        "SET o.class = 'backpack', o.name = 'backpack'")
-    insert_observations_to_db(db, [
-        {"nodeSymbol": "O(1)_100", "timestamp_ns": 100, "mask_file": "m1.png",
-         "bbox_2d_min_x": 0, "bbox_2d_min_y": 0, "bbox_2d_max_x": 5,
-         "bbox_2d_max_y": 5, "score": 0.9, "detector": "sam3",
-         "mechanism": "sam3_query"},
-        {"nodeSymbol": "O(1)_200", "timestamp_ns": 200, "mask_file": "m2.png",
-         "bbox_2d_min_x": 0, "bbox_2d_min_y": 0, "bbox_2d_max_x": 5,
-         "bbox_2d_max_y": 5, "score": 0.8, "detector": "sam3",
-         "mechanism": "sam3_query"},
-    ])
-    insert_edges(db, "HAS_OBSERVATION", "Object", "Observation",
-                 [{"from": "O(1)", "to": "O(1)_100"},
-                  {"from": "O(1)", "to": "O(1)_200"}])
+        "SET o.class = 'backpack', o.name = 'backpack'"
+    )
+    insert_observations_to_db(
+        db,
+        [
+            {
+                "nodeSymbol": "O(1)_100",
+                "timestamp_ns": 100,
+                "mask_file": "m1.png",
+                "bbox_2d_min_x": 0,
+                "bbox_2d_min_y": 0,
+                "bbox_2d_max_x": 5,
+                "bbox_2d_max_y": 5,
+                "score": 0.9,
+                "detector": "sam3",
+                "mechanism": "sam3_query",
+            },
+            {
+                "nodeSymbol": "O(1)_200",
+                "timestamp_ns": 200,
+                "mask_file": "m2.png",
+                "bbox_2d_min_x": 0,
+                "bbox_2d_min_y": 0,
+                "bbox_2d_max_x": 5,
+                "bbox_2d_max_y": 5,
+                "score": 0.8,
+                "detector": "sam3",
+                "mechanism": "sam3_query",
+            },
+        ],
+    )
+    insert_edges(
+        db,
+        "HAS_OBSERVATION",
+        "Object",
+        "Observation",
+        [{"from": "O(1)", "to": "O(1)_100"}, {"from": "O(1)", "to": "O(1)_200"}],
+    )
 
 
 Q_PRESENT = GroundingQuery("exists", ("backpack",), required_confidence=0.5)
@@ -92,13 +128,18 @@ Q_THIN = GroundingQuery("exists", ("broom",))
 def _populate_epistemic_layer(store):
     """Episodes + assertions covering all three status outcomes."""
     ep_full = SearchEpisode.create(
-        "exists", ("water fountain",), 100, 300, coverage=1.0,
-        mechanism="reprocess_memory")
+        "exists",
+        ("water fountain",),
+        100,
+        300,
+        coverage=1.0,
+        mechanism="reprocess_memory",
+    )
     n_cov = store.add_episode(ep_full, covered_by_time=True)
     assert n_cov == 3  # the three TrajectoryFrames
     ep_thin = SearchEpisode.create(
-        "exists", ("broom",), 100, 200, coverage=0.4,
-        mechanism="reprocess_memory")
+        "exists", ("broom",), 100, 200, coverage=0.4, mechanism="reprocess_memory"
+    )
     store.add_episode(ep_thin, covered_frames=["F(1)", "F(2)"])
 
     return {
@@ -120,12 +161,27 @@ def test_wipe_survival_roundtrip(db, tmp_path):
     assert first["absent"].status is EpistemicStatus.CONTRADICTED
     assert first["thin"].status is EpistemicStatus.UNKNOWN
     assert first["thin"].reason is ReasonCode.INSUFFICIENT_COVERAGE
-    assert _count(db, "MATCH (:Observation)-[r:SUPPORTS]->(:Assertion) "
-                      "RETURN count(r) AS n") == 2
-    assert _count(db, "MATCH (:SearchEpisode)-[r:CONTRADICTS]->(:Assertion) "
-                      "RETURN count(r) AS n") == 2  # absent (sufficient) + thin
-    assert _count(db, "MATCH (:SearchEpisode)-[r:COVERED]->(:TrajectoryFrame) "
-                      "RETURN count(r) AS n") == 5
+    assert (
+        _count(
+            db, "MATCH (:Observation)-[r:SUPPORTS]->(:Assertion) RETURN count(r) AS n"
+        )
+        == 2
+    )
+    assert (
+        _count(
+            db,
+            "MATCH (:SearchEpisode)-[r:CONTRADICTS]->(:Assertion) RETURN count(r) AS n",
+        )
+        == 2
+    )  # absent (sufficient) + thin
+    assert (
+        _count(
+            db,
+            "MATCH (:SearchEpisode)-[r:COVERED]->(:TrajectoryFrame) "
+            "RETURN count(r) AS n",
+        )
+        == 5
+    )
 
     sidecar = tmp_path / "epistemic.jsonl"
     n_lines = store.export_jsonl(sidecar)
@@ -152,12 +208,27 @@ def test_wipe_survival_roundtrip(db, tmp_path):
         assert set(b.contradicting) == set(a.contradicting)
 
     # COVERED and evidence edges re-attached to the re-ingested frames/obs.
-    assert _count(db, "MATCH (:SearchEpisode)-[r:COVERED]->(:TrajectoryFrame) "
-                      "RETURN count(r) AS n") == 5
-    assert _count(db, "MATCH (:Observation)-[r:SUPPORTS]->(:Assertion) "
-                      "RETURN count(r) AS n") == 2
-    assert _count(db, "MATCH (:SearchEpisode)-[r:CONTRADICTS]->(:Assertion) "
-                      "RETURN count(r) AS n") == 2
+    assert (
+        _count(
+            db,
+            "MATCH (:SearchEpisode)-[r:COVERED]->(:TrajectoryFrame) "
+            "RETURN count(r) AS n",
+        )
+        == 5
+    )
+    assert (
+        _count(
+            db, "MATCH (:Observation)-[r:SUPPORTS]->(:Assertion) RETURN count(r) AS n"
+        )
+        == 2
+    )
+    assert (
+        _count(
+            db,
+            "MATCH (:SearchEpisode)-[r:CONTRADICTS]->(:Assertion) RETURN count(r) AS n",
+        )
+        == 2
+    )
 
     # RECOMPUTING from the re-ingested evidence reproduces identical statuses
     # and identities (assertions are recomputable materializations).
@@ -186,8 +257,9 @@ def test_recompute_updates_assertion_in_place(db):
 
     # New evidence arrives: a completed sufficient search flips the verdict —
     # same assertion node, refreshed edges, no stale SUPPORTS/CONTRADICTS.
-    ep = SearchEpisode.create("exists", ("broom",), 100, 300, coverage=1.0,
-                              mechanism="reprocess_memory")
+    ep = SearchEpisode.create(
+        "exists", ("broom",), 100, 300, coverage=1.0, mechanism="reprocess_memory"
+    )
     store.add_episode(ep, covered_by_time=True)
     a2 = store.compute_assertion(Q_THIN, now_ns=20)
     assert a2.assertion_id == a1.assertion_id
@@ -195,11 +267,13 @@ def test_recompute_updates_assertion_in_place(db):
 
     assert _count(db, "MATCH (n:Assertion) RETURN count(n) AS n") == 1
     records, _, _ = db.execute(
-        "MATCH (n:Assertion) RETURN n.status AS s, n.computed_at_ns AS t")
+        "MATCH (n:Assertion) RETURN n.status AS s, n.computed_at_ns AS t"
+    )
     assert records[0]["s"] == "contradicted"
     assert records[0]["t"] == 20
-    assert _count(db, "MATCH ()-[r:CONTRADICTS]->(:Assertion) "
-                      "RETURN count(r) AS n") == 1
+    assert (
+        _count(db, "MATCH ()-[r:CONTRADICTS]->(:Assertion) RETURN count(r) AS n") == 1
+    )
 
 
 def test_observation_records_read_scores_from_graph(db):
@@ -217,15 +291,22 @@ def test_episode_provenance_roundtrips_through_graph(db):
     store = EvidenceStore(db)
     store.ensure_schema()
     ep = SearchEpisode.create(
-        "exists", ("mop",), 100, 200, coverage=0.9,
-        mechanism="frontier_search", source="frontier_search",
-        provenance={"requery_enabled": False, "grid_cells": 40})
+        "exists",
+        ("mop",),
+        100,
+        200,
+        coverage=0.9,
+        mechanism="frontier_search",
+        source="frontier_search",
+        provenance={"requery_enabled": False, "grid_cells": 40},
+    )
     store.add_episode(ep)
     (back,) = store.episodes_for(GroundingQuery("exists", ("mop",)))
     assert back == ep
     # Dead-channel negative -> UNKNOWN / PERCEPTION_UNAVAILABLE (invariant
     # survives the DB round trip).
-    a = store.compute_assertion(GroundingQuery("exists", ("mop",)), now_ns=999,
-                                persist=False)
+    a = store.compute_assertion(
+        GroundingQuery("exists", ("mop",)), now_ns=999, persist=False
+    )
     assert a.status is EpistemicStatus.UNKNOWN
     assert a.reason is ReasonCode.PERCEPTION_UNAVAILABLE

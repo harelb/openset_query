@@ -36,6 +36,7 @@ Design invariants (do not break): decay applied only at compute_status;
 negative evidence = completed search with coverage; coverage=None never
 contradicts.
 """
+
 from __future__ import annotations
 
 from .temporal import NoDecay
@@ -64,10 +65,15 @@ def _search_channel_alive(record: EvidenceRecord) -> bool:
     return bool(record.provenance.get("requery_enabled", True))
 
 
-def compute_status(query: GroundingQuery, records, *,
-                   temporal=None, now_ns=None,
-                   coverage_sufficiency=DEFAULT_COVERAGE_SUFFICIENCY,
-                   channel_capable=True) -> GroundingResult:
+def compute_status(
+    query: GroundingQuery,
+    records,
+    *,
+    temporal=None,
+    now_ns=None,
+    coverage_sufficiency=DEFAULT_COVERAGE_SUFFICIENCY,
+    channel_capable=True,
+) -> GroundingResult:
     """Resolve one query against its evidence. Pure; no I/O, no clock.
 
     ``now_ns`` is the caller's clock (pass mission start / report time);
@@ -79,8 +85,9 @@ def compute_status(query: GroundingQuery, records, *,
     temporal = temporal or NoDecay()
     records = tuple(records)
     if not records:
-        return GroundingResult(query=query, status=EpistemicStatus.UNKNOWN,
-                               reason=ReasonCode.NO_EVIDENCE)
+        return GroundingResult(
+            query=query, status=EpistemicStatus.UNKNOWN, reason=ReasonCode.NO_EVIDENCE
+        )
 
     positives = [r for r in records if r.polarity is Polarity.POSITIVE]
     negatives = [r for r in records if r.polarity is Polarity.NEGATIVE]
@@ -90,31 +97,39 @@ def compute_status(query: GroundingQuery, records, *,
         for r in positives:
             (stale if temporal.is_stale(r, now_ns) else fresh).append(r)
         if fresh:
-            scored = [(temporal.weight(r, now_ns) * r.effective_confidence, r)
-                      for r in fresh]
+            scored = [
+                (temporal.weight(r, now_ns) * r.effective_confidence, r) for r in fresh
+            ]
             best_eff, _best = max(scored, key=lambda p: p[0])
             if best_eff >= query.required_confidence:
                 return GroundingResult(
-                    query=query, status=EpistemicStatus.SUPPORTED,
+                    query=query,
+                    status=EpistemicStatus.SUPPORTED,
                     reason=ReasonCode.ADMISSIBLE_POSITIVE_EVIDENCE,
                     belief=best_eff,
                     supporting=tuple(r.evidence_id for _e, r in scored),
-                    records=records)
+                    records=records,
+                )
             return GroundingResult(
-                query=query, status=EpistemicStatus.UNKNOWN,
+                query=query,
+                status=EpistemicStatus.UNKNOWN,
                 reason=ReasonCode.BELOW_REQUIRED_CONFIDENCE,
                 belief=best_eff,
                 supporting=tuple(r.evidence_id for _e, r in scored),
-                records=records)
+                records=records,
+            )
         # Every positive decayed below the temporal floor.
-        decayed = max(temporal.weight(r, now_ns) * r.effective_confidence
-                      for r in stale)
+        decayed = max(
+            temporal.weight(r, now_ns) * r.effective_confidence for r in stale
+        )
         return GroundingResult(
-            query=query, status=EpistemicStatus.UNKNOWN,
+            query=query,
+            status=EpistemicStatus.UNKNOWN,
             reason=ReasonCode.STALE_HISTORICAL_EVIDENCE,
             belief=decayed,
             supporting=tuple(r.evidence_id for r in stale),
-            records=records)
+            records=records,
+        )
 
     # No positive evidence. Only a completed, sufficiently-covering search
     # by a capable, alive channel may contradict.
@@ -123,27 +138,39 @@ def compute_status(query: GroundingQuery, records, *,
         alive = [r for r in negatives if _search_channel_alive(r)]
         if not channel_capable or (dead and not alive):
             return GroundingResult(
-                query=query, status=EpistemicStatus.UNKNOWN,
+                query=query,
+                status=EpistemicStatus.UNKNOWN,
                 reason=ReasonCode.PERCEPTION_UNAVAILABLE,
                 contradicting=tuple(r.evidence_id for r in negatives),
-                records=records)
-        sufficient = [r for r in alive
-                      if r.coverage is not None
-                      and r.coverage >= coverage_sufficiency]
+                records=records,
+            )
+        sufficient = [
+            r
+            for r in alive
+            if r.coverage is not None and r.coverage >= coverage_sufficiency
+        ]
         if sufficient:
             return GroundingResult(
-                query=query, status=EpistemicStatus.CONTRADICTED,
+                query=query,
+                status=EpistemicStatus.CONTRADICTED,
                 reason=ReasonCode.UNSUPPORTED_AFTER_SUFFICIENT_SEARCH,
                 belief=0.0,
                 contradicting=tuple(r.evidence_id for r in sufficient),
-                records=records)
+                records=records,
+            )
         return GroundingResult(
-            query=query, status=EpistemicStatus.UNKNOWN,
+            query=query,
+            status=EpistemicStatus.UNKNOWN,
             reason=ReasonCode.INSUFFICIENT_COVERAGE,
             contradicting=tuple(r.evidence_id for r in alive),
-            records=records)
+            records=records,
+        )
 
     # Records existed but were neither positive nor negative -- unreachable
     # with the two-valued Polarity enum, kept for fail-closed completeness.
-    return GroundingResult(query=query, status=EpistemicStatus.UNKNOWN,
-                           reason=ReasonCode.NO_EVIDENCE, records=records)
+    return GroundingResult(
+        query=query,
+        status=EpistemicStatus.UNKNOWN,
+        reason=ReasonCode.NO_EVIDENCE,
+        records=records,
+    )

@@ -22,15 +22,28 @@ def _q(**kw):
     return GroundingQuery(**defaults)
 
 
-def _result(status=EpistemicStatus.SUPPORTED,
-            reason=ReasonCode.ADMISSIBLE_POSITIVE_EVIDENCE, belief=0.9, q=None):
-    return GroundingResult(query=q or _q(), status=status, reason=reason,
-                           belief=belief, supporting=("ev1", "ev2"))
+def _result(
+    status=EpistemicStatus.SUPPORTED,
+    reason=ReasonCode.ADMISSIBLE_POSITIVE_EVIDENCE,
+    belief=0.9,
+    q=None,
+):
+    return GroundingResult(
+        query=q or _q(),
+        status=status,
+        reason=reason,
+        belief=belief,
+        supporting=("ev1", "ev2"),
+    )
 
 
 def test_from_result_and_json_roundtrip():
-    a = Assertion.from_result(_result(), computed_at_ns=5 * NS,
-                              policy_version="v1", scope={"region": "kitchen"})
+    a = Assertion.from_result(
+        _result(),
+        computed_at_ns=5 * NS,
+        policy_version="v1",
+        scope={"region": "kitchen"},
+    )
     assert a.assertion_id.startswith("assert_")
     assert a.supporting == ("ev1", "ev2")
     assert a.policy_version == "v1"
@@ -43,10 +56,10 @@ def test_certifies_supported_fresh_and_confident():
     q = _q(required_confidence=0.8, freshness_s=10.0)
     a = Assertion.from_result(_result(belief=0.9, q=q), computed_at_ns=0)
     assert a.freshness_s == 10.0
-    assert a.certifies(now_ns=5 * NS)          # fresh, confident
-    assert not a.certifies(now_ns=11 * NS)     # stale verdict
+    assert a.certifies(now_ns=5 * NS)  # fresh, confident
+    assert not a.certifies(now_ns=11 * NS)  # stale verdict
     low = Assertion.from_result(_result(belief=0.5, q=q), computed_at_ns=0)
-    assert not low.certifies(now_ns=5 * NS)    # under-confident
+    assert not low.certifies(now_ns=5 * NS)  # under-confident
 
 
 def test_certifies_never_for_non_supported():
@@ -54,8 +67,9 @@ def test_certifies_never_for_non_supported():
         (EpistemicStatus.CONTRADICTED, ReasonCode.UNSUPPORTED_AFTER_SUFFICIENT_SEARCH),
         (EpistemicStatus.UNKNOWN, ReasonCode.NO_EVIDENCE),
     ]:
-        a = Assertion.from_result(_result(status=status, reason=reason),
-                                  computed_at_ns=0)
+        a = Assertion.from_result(
+            _result(status=status, reason=reason), computed_at_ns=0
+        )
         assert not a.certifies(now_ns=0)
 
 
@@ -72,8 +86,12 @@ def test_no_freshness_horizon_is_always_fresh():
 
 def test_obligation_lifecycle_and_roundtrip():
     o = EvidenceObligation.create(
-        _q(), mechanism="reprocess_memory", created_at_ns=1 * NS,
-        assertion_id="assert_abc", estimated_cost={"time_s": 3.0})
+        _q(),
+        mechanism="reprocess_memory",
+        created_at_ns=1 * NS,
+        assertion_id="assert_abc",
+        estimated_cost={"time_s": 3.0},
+    )
     assert o.status is ObligationStatus.OPEN
     assert o.obligation_id.startswith("oblig_")
 

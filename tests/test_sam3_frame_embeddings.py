@@ -1,5 +1,6 @@
 """SigLIP2 keyframe embeddings on Neo4j nodes (frame_embeddings.py), the vectorised
 frustum test and the per-frame reprojection prefilter. No GPU, no database."""
+
 import numpy as np
 import pytest
 
@@ -24,8 +25,12 @@ class FakeDB:
             return [], None, None
         label = q.split("(a:")[1].split(")")[0].split(" ")[0]
         if q.startswith("MATCH"):
-            rows = [{"fid": fid, "v": p["siglip2_emb"]} for fid, p in self.nodes[label].items()
-                    if p.get("siglip2_emb") is not None and p.get("siglip2_model") == kw["m"]]
+            rows = [
+                {"fid": fid, "v": p["siglip2_emb"]}
+                for fid, p in self.nodes[label].items()
+                if p.get("siglip2_emb") is not None
+                and p.get("siglip2_model") == kw["m"]
+            ]
             return rows, None, None
         n = 0
         for r in kw["rows"]:
@@ -63,11 +68,21 @@ def _unit(*v):
 
 
 def test_sync_reads_neo4j_then_npz_then_computes_and_writes_back():
-    db = FakeDB({"Agent": {1: {"siglip2_emb": list(_unit(1, 0, 0, 0) * 3),
-                               "siglip2_model": FakeEF.model_id},
-                           2: {}},
-                 "SubKeyframe": {3: {"siglip2_emb": [0, 1, 0, 0], "siglip2_model": "other"},
-                                 4: {}}})
+    db = FakeDB(
+        {
+            "Agent": {
+                1: {
+                    "siglip2_emb": list(_unit(1, 0, 0, 0) * 3),
+                    "siglip2_model": FakeEF.model_id,
+                },
+                2: {},
+            },
+            "SubKeyframe": {
+                3: {"siglip2_emb": [0, 1, 0, 0], "siglip2_model": "other"},
+                4: {},
+            },
+        }
+    )
     ef = FakeEF(cache={"f2": _unit(0, 0, 1, 0)})  # frame 2 is in the npz cache
     kfs = [_KF(1), _KF(2), _KF(3), _KF(4), _KF(9, ns="live/robot1/1")]
     st = fe.sync_pool_embeddings(db, ef, kfs, ef.frame_key)
@@ -118,8 +133,16 @@ def test_query_vector_index_converts_scores():
 class _PKF:
     def __init__(self, T):
         self.world_T_body = T
-        self.calib = CameraCalib(fx=300, fy=300, cx=160, cy=120, width=320, height=240,
-                                 depth_scale=1e-3, body_T_sensor=np.eye(4))
+        self.calib = CameraCalib(
+            fx=300,
+            fy=300,
+            cx=160,
+            cy=120,
+            width=320,
+            height=240,
+            depth_scale=1e-3,
+            body_T_sensor=np.eye(4),
+        )
 
 
 def _pose(rng):
@@ -151,8 +174,16 @@ def test_any_in_frustum_matches_in_frustum():
 
 
 def test_views_from_detections_prefilter_is_exact():
-    calib = CameraCalib(fx=100, fy=100, cx=32, cy=24, width=64, height=48, depth_scale=1e-3,
-                        body_T_sensor=np.eye(4))
+    calib = CameraCalib(
+        fx=100,
+        fy=100,
+        cx=32,
+        cy=24,
+        width=64,
+        height=48,
+        depth_scale=1e-3,
+        body_T_sensor=np.eye(4),
+    )
 
     class KF:
         world_T_body = np.eye(4)
@@ -172,12 +203,17 @@ def test_views_from_detections_prefilter_is_exact():
         m = np.zeros((48, 64), bool)
         y, x = rng.integers(0, 40), rng.integers(0, 56)
         h, w = rng.integers(2, 24), rng.integers(2, 24)
-        m[y:y + h, x:x + w] = True
+        m[y : y + h, x : x + w] = True
         dets.append(Detection(label="x", mask=m, box=np.zeros(4), score=0.5))
     got = od._views_from_detections(dets, rgb, depth, KF, cfg)
     from openset_query.reprojection import mask_to_points
 
-    want = [d for d in dets
-            if mask_to_points(d.mask, depth, calib, np.eye(4)).shape[0] >= 40]
+    want = [
+        d
+        for d in dets
+        if mask_to_points(d.mask, depth, calib, np.eye(4)).shape[0] >= 40
+    ]
     assert len(got) == len(want) and 0 < len(want) < len(dets)
-    assert all(np.array_equal(g.observations[0].mask, w.mask) for g, w in zip(got, want))
+    assert all(
+        np.array_equal(g.observations[0].mask, w.mask) for g, w in zip(got, want)
+    )

@@ -1,4 +1,5 @@
 """evidence.curation_store — the per-map admission-curation sidecar."""
+
 import json
 
 from openset_query.evidence import curation_store as cs
@@ -20,20 +21,26 @@ class FakeDb:
 
 
 def test_sidecar_path_is_next_to_dsg(tmp_path):
-    assert cs.sidecar_path(tmp_path / "hydra" / "dsg.json") == \
-        tmp_path / "hydra" / "curated_priors.json"
+    assert (
+        cs.sidecar_path(tmp_path / "hydra" / "dsg.json")
+        == tmp_path / "hydra" / "curated_priors.json"
+    )
 
 
 def test_record_merge_newest_wins_and_roundtrip(tmp_path):
     p = tmp_path / "curated_priors.json"
-    n = cs.record_rules(p, [
-        {"class": "mug", "status": "trusted_prior", "policy": "curated_prior_v1"},
-        {"class": "Coffee Maker", "status": "trusted_prior"},
-    ])
+    n = cs.record_rules(
+        p,
+        [
+            {"class": "mug", "status": "trusted_prior", "policy": "curated_prior_v1"},
+            {"class": "Coffee Maker", "status": "trusted_prior"},
+        ],
+    )
     assert n == 2
     # newest decision per class wins (case-insensitive key)
-    n = cs.record_rules(p, [{"class": "MUG", "status": "rejected",
-                             "reason": "phantom"}])
+    n = cs.record_rules(
+        p, [{"class": "MUG", "status": "rejected", "reason": "phantom"}]
+    )
     assert n == 2
     rules = {r["class"].lower(): r for r in cs.load_rules(p)}
     assert rules["mug"]["status"] == "rejected"
@@ -43,12 +50,16 @@ def test_record_merge_newest_wins_and_roundtrip(tmp_path):
 
 def test_load_rules_drops_garbage(tmp_path):
     p = tmp_path / "curated_priors.json"
-    p.write_text(json.dumps([
-        {"class": "mug", "status": "trusted_prior", "policy": "p"},
-        {"class": "bad-status", "status": "very_trusted"},
-        {"status": "trusted_prior"},          # no class
-        "not a dict",
-    ]))
+    p.write_text(
+        json.dumps(
+            [
+                {"class": "mug", "status": "trusted_prior", "policy": "p"},
+                {"class": "bad-status", "status": "very_trusted"},
+                {"status": "trusted_prior"},  # no class
+                "not a dict",
+            ]
+        )
+    )
     assert [r["class"] for r in cs.load_rules(p)] == ["mug"]
     (tmp_path / "broken.json").write_text("{nope")
     assert cs.load_rules(tmp_path / "broken.json") == []
@@ -57,10 +68,13 @@ def test_load_rules_drops_garbage(tmp_path):
 
 def test_apply_rules_stamps_matching_objects(tmp_path):
     p = tmp_path / "curated_priors.json"
-    cs.record_rules(p, [
-        {"class": "mug", "status": "trusted_prior", "policy": "curated_prior_v1"},
-        {"class": "kayak", "status": "rejected", "reason": "phantom"},
-    ])
+    cs.record_rules(
+        p,
+        [
+            {"class": "mug", "status": "trusted_prior", "policy": "curated_prior_v1"},
+            {"class": "kayak", "status": "rejected", "reason": "phantom"},
+        ],
+    )
     db = FakeDb({"mug": ["O14", "O77"], "kayak": []})
     assert cs.apply_rules(db, p) == 2
     stamped = {w[1]["sym"]: w[1] for w in db.writes}
@@ -73,6 +87,7 @@ def test_apply_rules_never_raises(tmp_path):
     class ExplodingDb:
         def execute(self, *a, **k):
             raise RuntimeError("db down")
+
     p = tmp_path / "curated_priors.json"
     cs.record_rules(p, [{"class": "mug", "status": "trusted_prior"}])
     assert cs.apply_rules(ExplodingDb(), p) == 0

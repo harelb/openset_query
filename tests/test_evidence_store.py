@@ -3,6 +3,7 @@
 The full ingest -> wipe -> re-ingest + JSONL re-import acceptance runs against
 a real database in test_evidence_store_db.py (env-gated on NEO4J_URI).
 """
+
 import json
 
 import pytest
@@ -51,8 +52,13 @@ class FakeDb:
 
 def test_episode_to_record_is_negative_with_coverage_passthrough():
     ep = SearchEpisode.create(
-        "exists", ("water fountain",), 100, 300, coverage=0.97,
-        mechanism="reprocess_memory", session_id="s1",
+        "exists",
+        ("water fountain",),
+        100,
+        300,
+        coverage=0.97,
+        mechanism="reprocess_memory",
+        session_id="s1",
         provenance={"requery_enabled": False},
     )
     rec = ep.to_record()
@@ -69,8 +75,13 @@ def test_episode_to_record_is_negative_with_coverage_passthrough():
 
 def test_episode_json_roundtrip():
     ep = SearchEpisode.create(
-        "exists", ("broom",), 1, 2, coverage=None,
-        mechanism="frontier_search", source="frontier_search",
+        "exists",
+        ("broom",),
+        1,
+        2,
+        coverage=None,
+        mechanism="frontier_search",
+        source="frontier_search",
         provenance={"grid_cells": 40},
     )
     again = SearchEpisode.from_json(json.loads(json.dumps(ep.to_json())))
@@ -140,12 +151,27 @@ def test_add_episode_explicit_frames_uses_symbol_match():
 
 def test_compute_assertion_supported_and_edges_refreshed():
     db = FakeDb()
-    db.respond("HAS_OBSERVATION", [
-        {"ns": "O(1)_100", "ts": 100, "score": 0.9, "detector": "sam3",
-         "mechanism": "sam3_query", "obj": "O(1)"},
-        {"ns": "O(1)_200", "ts": 200, "score": 0.8, "detector": "sam3",
-         "mechanism": "sam3_query", "obj": "O(1)"},
-    ])
+    db.respond(
+        "HAS_OBSERVATION",
+        [
+            {
+                "ns": "O(1)_100",
+                "ts": 100,
+                "score": 0.9,
+                "detector": "sam3",
+                "mechanism": "sam3_query",
+                "obj": "O(1)",
+            },
+            {
+                "ns": "O(1)_200",
+                "ts": 200,
+                "score": 0.8,
+                "detector": "sam3",
+                "mechanism": "sam3_query",
+                "obj": "O(1)",
+            },
+        ],
+    )
     store = EvidenceStore(db, policy_version="p1")
     q = GroundingQuery("exists", ("backpack",))
     a = store.compute_assertion(q, now_ns=1_000)
@@ -167,11 +193,21 @@ def test_compute_assertion_supported_and_edges_refreshed():
 
 def test_compute_assertion_contradicted_by_episode():
     db = FakeDb()
-    db.respond("MATCH (e:SearchEpisode {predicate", [
-        {"episode_id": "episode_abc", "t0": 0, "t1": 10, "coverage": 1.0,
-         "mechanism": "reprocess_memory", "session_id": None,
-         "source": "current_archive", "provenance_json": "{}"},
-    ])
+    db.respond(
+        "MATCH (e:SearchEpisode {predicate",
+        [
+            {
+                "episode_id": "episode_abc",
+                "t0": 0,
+                "t1": 10,
+                "coverage": 1.0,
+                "mechanism": "reprocess_memory",
+                "session_id": None,
+                "source": "current_archive",
+                "provenance_json": "{}",
+            },
+        ],
+    )
     store = EvidenceStore(db)
     q = GroundingQuery("exists", ("water fountain",))
     a = store.compute_assertion(q, now_ns=1_000)
@@ -185,8 +221,9 @@ def test_compute_assertion_contradicted_by_episode():
 def test_compute_assertion_no_evidence_unknown_not_persisted_when_disabled():
     db = FakeDb()
     store = EvidenceStore(db)
-    a = store.compute_assertion(GroundingQuery("exists", ("unicorn",)),
-                                now_ns=5, persist=False)
+    a = store.compute_assertion(
+        GroundingQuery("exists", ("unicorn",)), now_ns=5, persist=False
+    )
     assert a.status is EpistemicStatus.UNKNOWN
     assert a.reason is ReasonCode.NO_EVIDENCE
     assert not db.calls_containing("MERGE (a:Assertion")
@@ -194,14 +231,25 @@ def test_compute_assertion_no_evidence_unknown_not_persisted_when_disabled():
 
 def test_certifies_composes_with_store_output():
     db = FakeDb()
-    db.respond("HAS_OBSERVATION", [
-        {"ns": "O(9)_5", "ts": 5, "score": 0.4, "detector": "sam3",
-         "mechanism": "sam3_query", "obj": "O(9)"},
-    ])
+    db.respond(
+        "HAS_OBSERVATION",
+        [
+            {
+                "ns": "O(9)_5",
+                "ts": 5,
+                "score": 0.4,
+                "detector": "sam3",
+                "mechanism": "sam3_query",
+                "obj": "O(9)",
+            },
+        ],
+    )
     store = EvidenceStore(db)
     weak = store.compute_assertion(
         GroundingQuery("exists", ("broom",), required_confidence=0.7),
-        now_ns=10, persist=False)
+        now_ns=10,
+        persist=False,
+    )
     assert weak.status is EpistemicStatus.UNKNOWN
     assert weak.reason is ReasonCode.BELOW_REQUIRED_CONFIDENCE
     assert not weak.certifies(now_ns=10)
@@ -214,14 +262,20 @@ def test_import_jsonl_roundtrips_lines(tmp_path):
     q = GroundingQuery("exists", ("mop",))
     assertion = Assertion.from_result(
         compute_status(q, [ep.to_record()]),
-        computed_at_ns=7, assertion_id=assertion_id_for(q))
+        computed_at_ns=7,
+        assertion_id=assertion_id_for(q),
+    )
     path = tmp_path / "sidecar.jsonl"
     with open(path, "w") as f:
-        f.write(json.dumps({"kind": "search_episode",
-                            "episode": ep.to_json(),
-                            "covered": ["F(1)"]}) + "\n")
-        f.write(json.dumps({"kind": "assertion",
-                            "assertion": assertion.to_json()}) + "\n")
+        f.write(
+            json.dumps(
+                {"kind": "search_episode", "episode": ep.to_json(), "covered": ["F(1)"]}
+            )
+            + "\n"
+        )
+        f.write(
+            json.dumps({"kind": "assertion", "assertion": assertion.to_json()}) + "\n"
+        )
 
     counts = store.import_jsonl(path)
     assert counts == {"search_episode": 1, "assertion": 1}

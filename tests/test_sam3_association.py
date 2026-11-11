@@ -1,4 +1,5 @@
 """Same-object association (association.py): 3D clustering of per-view detections."""
+
 import numpy as np
 import pytest
 
@@ -20,10 +21,22 @@ def det(label, lo, hi, score=0.8, frame=0, points=True, rng=None):
     if points:
         rng = rng or np.random.default_rng(frame * 7 + int(score * 100))
         pts = lo + rng.random((400, 3)) * (hi - lo)
-    o = Object3D(centroid=(lo + hi) / 2, bbox_min=lo, bbox_max=hi, num_points=400,
-                 label=label, score=score, points=pts)
-    ob = od.Observation(timestamp_ns=1000 + frame, mask_file="", bbox_2d=(0, 0, 5, 5),
-                        score=score, keyframe=_KF(frame))
+    o = Object3D(
+        centroid=(lo + hi) / 2,
+        bbox_min=lo,
+        bbox_max=hi,
+        num_points=400,
+        label=label,
+        score=score,
+        points=pts,
+    )
+    ob = od.Observation(
+        timestamp_ns=1000 + frame,
+        mask_file="",
+        bbox_2d=(0, 0, 5, 5),
+        score=score,
+        keyframe=_KF(frame),
+    )
     return od.DiscoveredObject(obj=o, observations=[ob])
 
 
@@ -32,8 +45,11 @@ def chair(x, frame, jitter=0.0, score=0.8):
 
 
 def test_two_views_of_one_chair_and_a_second_chair_two_metres_away():
-    views = [chair(0.0, 0, score=0.9), chair(0.0, 1, jitter=0.12, score=0.7),
-             chair(2.0, 2, score=0.8)]
+    views = [
+        chair(0.0, 0, score=0.9),
+        chair(0.0, 1, jitter=0.12, score=0.7),
+        chair(2.0, 2, score=0.8),
+    ]
     out = assoc.cluster_detections(views)
     assert len(out) == 2
     a, b = out  # best cluster first
@@ -55,9 +71,12 @@ def test_mug_inside_table_is_not_merged_across_labels():
 
 def test_same_label_partial_view_is_merged_by_containment():
     full = det("sofa", [0, 0, 0], [2.0, 0.9, 0.8], 0.9, 0)
-    part = det("sofa", [1.25, 0.1, 0.15], [1.9, 0.8, 0.65], 0.6, 1)  # IoU small, contained
-    iou, contain, ratio = assoc.overlap_terms(full.obj.bbox_min, full.obj.bbox_max,
-                                              part.obj.bbox_min, part.obj.bbox_max)
+    part = det(
+        "sofa", [1.25, 0.1, 0.15], [1.9, 0.8, 0.65], 0.6, 1
+    )  # IoU small, contained
+    iou, contain, ratio = assoc.overlap_terms(
+        full.obj.bbox_min, full.obj.bbox_max, part.obj.bbox_min, part.obj.bbox_max
+    )
     assert iou < 0.2 and contain > 0.99
     (one,) = assoc.cluster_detections([full, part])
     assert len(one.observations) == 2
@@ -69,8 +88,10 @@ def test_smeared_box_does_not_swallow_small_objects():
     chairs = [chair(x, i) for i, x in enumerate((0.0, 2.0, 4.0))]
     out = assoc.cluster_detections(chairs + [smeared])
     # (its centroid may coincide with the middle chair's, which then absorbs it)
-    homes = [next(i for i, d in enumerate(out) if c.observations[0] in d.observations)
-             for c in chairs]
+    homes = [
+        next(i for i, d in enumerate(out) if c.observations[0] in d.observations)
+        for c in chairs
+    ]
     assert len(set(homes)) == 3 and len(out) >= 3
 
 
@@ -93,7 +114,9 @@ def test_no_points_falls_back_to_score_weighted_union():
     a = det("box", [0, 0, 0], [1, 1, 1], 0.9, 0, points=False)
     b = det("box", [0.1, 0, 0], [1.1, 1, 1], 0.3, 1, points=False)
     (one,) = assoc.cluster_detections([a, b])
-    assert np.allclose(one.obj.bbox_min, [0, 0, 0]) and np.allclose(one.obj.bbox_max, [1.1, 1, 1])
+    assert np.allclose(one.obj.bbox_min, [0, 0, 0]) and np.allclose(
+        one.obj.bbox_max, [1.1, 1, 1]
+    )
     assert one.obj.centroid[0] == pytest.approx((0.5 * 0.9 + 0.6 * 0.3) / 1.2)
     assert one.obj.score == 0.9 and one.obj.num_points == 800
 
@@ -113,8 +136,16 @@ def test_many_detections_scale_linearly_and_group_per_object():
         x, y = (k % 20) * 4.0, (k // 20) * 4.0
         for f in range(5):
             j = rng.normal(0, 0.05, 3)
-            views.append(det("cone", [x + j[0], y + j[1], 0], [x + 0.4 + j[0], y + 0.4 + j[1], 0.7],
-                             0.5 + 0.01 * f, frame=k * 5 + f, rng=rng))
+            views.append(
+                det(
+                    "cone",
+                    [x + j[0], y + j[1], 0],
+                    [x + 0.4 + j[0], y + 0.4 + j[1], 0.7],
+                    0.5 + 0.01 * f,
+                    frame=k * 5 + f,
+                    rng=rng,
+                )
+            )
     import time
 
     t = time.perf_counter()
@@ -136,7 +167,9 @@ def test_associate_dispatch_and_config_params():
     assert len(od.associate(views, cfg)) == 2
     cfg.association = "centroid"
     assert len(od.associate(views, cfg)) == 2
-    p = assoc.params_from_config(Sam3FrontendConfig(fuse_centroid_dist_m=0.5, assoc_iou_min=0.4))
+    p = assoc.params_from_config(
+        Sam3FrontendConfig(fuse_centroid_dist_m=0.5, assoc_iou_min=0.4)
+    )
     assert p.max_dist_m == 0.5 and p.iou_min == 0.4
     p = assoc.params_from_config(Sam3FrontendConfig(assoc_max_dist_m=1.5))
     assert p.max_dist_m == 1.5

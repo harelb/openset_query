@@ -12,13 +12,14 @@ Sidecar: ``curated_priors.json`` next to the map's ``dsg.json`` — a JSON list
 of ``{"class": <exact class, case-insensitive>, "status": ..., "policy": ...,
 "reason": ...?}``, newest decision per class wins.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import tempfile
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable
 
 from openset_query.evidence import admission as adm
 
@@ -44,22 +45,29 @@ def load_rules(path: str | Path) -> list[dict]:
     if not isinstance(rules, list):
         logger.warning("curation sidecar %s is not a list (ignored)", path)
         return []
-    return [r for r in rules if isinstance(r, dict) and r.get("class")
-            and r.get("status") in adm.ADMISSION_VALUES]
+    return [
+        r
+        for r in rules
+        if isinstance(r, dict)
+        and r.get("class")
+        and r.get("status") in adm.ADMISSION_VALUES
+    ]
 
 
 def record_rules(path: str | Path, new_rules: Iterable[dict]) -> int:
     """Merge ``new_rules`` into the sidecar (per-class, newest wins; atomic
     write). Returns the total rule count after the merge."""
     path = Path(path)
-    merged: dict[str, dict] = {
-        str(r["class"]).lower(): r for r in load_rules(path)}
+    merged: dict[str, dict] = {str(r["class"]).lower(): r for r in load_rules(path)}
     for r in new_rules:
         cls, status = r.get("class"), r.get("status")
         if not cls or status not in adm.ADMISSION_VALUES:
             continue
-        rule = {"class": str(cls), "status": status,
-                "policy": str(r.get("policy") or "curated_prior_v1")}
+        rule = {
+            "class": str(cls),
+            "status": status,
+            "policy": str(r.get("policy") or "curated_prior_v1"),
+        }
         if r.get("reason"):
             rule["reason"] = str(r["reason"])
         merged[str(cls).lower()] = rule
@@ -85,11 +93,17 @@ def apply_rules(db, path: str | Path) -> int:
         for rule in load_rules(path):
             records, _, _ = db.execute(
                 "MATCH (o:Object) WHERE toLower(o.class) = toLower($cls) "
-                "RETURN o.nodeSymbol AS sym", cls=rule["class"])
+                "RETURN o.nodeSymbol AS sym",
+                cls=rule["class"],
+            )
             for rec in records:
-                adm._set_admission(db, rec["sym"], rule["status"],
-                                   policy_version=rule["policy"],
-                                   reason=rule.get("reason"))
+                adm._set_admission(
+                    db,
+                    rec["sym"],
+                    rule["status"],
+                    policy_version=rule["policy"],
+                    reason=rule.get("reason"),
+                )
                 n += 1
         if n:
             logger.info("curation sidecar %s: stamped %d object(s)", path, n)

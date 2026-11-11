@@ -119,7 +119,9 @@ def test_points_to_object_centroid_and_bbox():
     pts = np.array(
         [[0.0, 0.0, 2.0], [1.0, 0.0, 2.0], [0.5, 0.5, 2.0]], dtype=np.float64
     )
-    obj = points_to_object(pts, label="chair", score=0.9, percentile_lo=0, percentile_hi=100)
+    obj = points_to_object(
+        pts, label="chair", score=0.9, percentile_lo=0, percentile_hi=100
+    )
     assert obj is not None
     np.testing.assert_allclose(obj.centroid, [0.5, 0.5 / 3.0 * 1.0, 2.0], atol=1e-9)
     np.testing.assert_allclose(obj.bbox_min, [0.0, 0.0, 2.0])

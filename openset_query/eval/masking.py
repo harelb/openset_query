@@ -34,6 +34,7 @@ as ``reprocess_memory`` acquisitions, ``--mask`` joining the run_openset
 resume key) is the follow-up — this module owns the artifact + the replay
 semantics both tiers share.
 """
+
 from __future__ import annotations
 
 import json
@@ -47,7 +48,6 @@ from openset_query.evidence import (
     EvidenceRecord,
     EvidenceSource,
     GroundingQuery,
-    GroundingResult,
     Polarity,
     compute_status,
 )
@@ -80,8 +80,9 @@ class MaskArtifact:
     params: dict = field(default_factory=dict)
 
     def __post_init__(self):
-        object.__setattr__(self, "masked_frame_ts",
-                           tuple(sorted(int(t) for t in self.masked_frame_ts)))
+        object.__setattr__(
+            self, "masked_frame_ts", tuple(sorted(int(t) for t in self.masked_frame_ts))
+        )
 
     @property
     def frames(self) -> frozenset:
@@ -100,17 +101,23 @@ class MaskArtifact:
         return f"{self.generator}:{self.seed}:{digest}"
 
     def to_json(self) -> dict:
-        return {"map": self.map, "generator": self.generator,
-                "seed": self.seed,
-                "masked_frame_ts": list(self.masked_frame_ts),
-                "params": self.params}
+        return {
+            "map": self.map,
+            "generator": self.generator,
+            "seed": self.seed,
+            "masked_frame_ts": list(self.masked_frame_ts),
+            "params": self.params,
+        }
 
     @classmethod
     def from_json(cls, d: dict) -> "MaskArtifact":
-        return cls(map=str(d["map"]), generator=str(d["generator"]),
-                   seed=int(d["seed"]),
-                   masked_frame_ts=tuple(d.get("masked_frame_ts", ())),
-                   params=dict(d.get("params", {})))
+        return cls(
+            map=str(d["map"]),
+            generator=str(d["generator"]),
+            seed=int(d["seed"]),
+            masked_frame_ts=tuple(d.get("masked_frame_ts", ())),
+            params=dict(d.get("params", {})),
+        )
 
     def save(self, path) -> None:
         Path(path).write_text(json.dumps(self.to_json(), sort_keys=True) + "\n")
@@ -120,27 +127,40 @@ class MaskArtifact:
         return cls.from_json(json.loads(Path(path).read_text()))
 
 
-def mask_random_fraction(frame_universe, fraction: float, *, seed: int,
-                         map_name: str) -> MaskArtifact:
+def mask_random_fraction(
+    frame_universe, fraction: float, *, seed: int, map_name: str
+) -> MaskArtifact:
     """Hide a seeded random ``fraction`` of the (sorted) frame universe."""
     universe = sorted(int(t) for t in set(frame_universe))
     k = int(round(len(universe) * float(fraction)))
     rng = random.Random(seed)
     masked = rng.sample(universe, k) if k else []
-    return MaskArtifact(map=map_name, generator="random_fraction", seed=seed,
-                        masked_frame_ts=tuple(masked),
-                        params={"fraction": float(fraction),
-                                "universe_size": len(universe)})
+    return MaskArtifact(
+        map=map_name,
+        generator="random_fraction",
+        seed=seed,
+        masked_frame_ts=tuple(masked),
+        params={"fraction": float(fraction), "universe_size": len(universe)},
+    )
 
 
 def mask_class_support(cell: dict, *, seed: int = 0) -> MaskArtifact:
     """Hide EVERY frame supporting the cell's class — the exclusivity
     instrument: after this mask, no assertion for the class may survive."""
-    frames = sorted({int(t) for det in cell.get("detections", ())
-                     for t in (det.get("frame_ts") or ())})
-    return MaskArtifact(map=str(cell.get("env", "")), generator="class_support",
-                        seed=seed, masked_frame_ts=tuple(frames),
-                        params={"prompt_class": cell.get("prompt_class")})
+    frames = sorted(
+        {
+            int(t)
+            for det in cell.get("detections", ())
+            for t in (det.get("frame_ts") or ())
+        }
+    )
+    return MaskArtifact(
+        map=str(cell.get("env", "")),
+        generator="class_support",
+        seed=seed,
+        masked_frame_ts=tuple(frames),
+        params={"prompt_class": cell.get("prompt_class")},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -187,8 +207,13 @@ def apply_mask_to_detections(dets, masked_frames) -> list:
 # ---------------------------------------------------------------------------
 
 
-def accept_detections(dets, *, min_score, min_frames=DEFAULT_MIN_FRAMES,
-                      min_pixels_single=DEFAULT_MIN_PIXELS_SINGLE) -> list:
+def accept_detections(
+    dets,
+    *,
+    min_score,
+    min_frames=DEFAULT_MIN_FRAMES,
+    min_pixels_single=DEFAULT_MIN_PIXELS_SINGLE,
+) -> list:
     """The shipped anti-hallucination gate: ``score >= min_score`` AND
     (multi-view ``n_frames >= min_frames`` OR big-mask ``n_pixels >=
     min_pixels_single``). Missing/malformed keys fail closed."""
@@ -213,8 +238,9 @@ def merge_detections(dets, radius_m: float = _MERGE_RADIUS_M) -> list:
     ``frame_ts`` when every contributor has provenance, else max (sound lower
     bound, ``frame_ts`` omitted)."""
     fused = []
-    for det in sorted(dets, key=lambda d: float(d.get("score", 0.0) or 0.0),
-                      reverse=True):
+    for det in sorted(
+        dets, key=lambda d: float(d.get("score", 0.0) or 0.0), reverse=True
+    ):
         label = str(det.get("label", ""))
         key = label.strip().lower()
         x = float(det.get("x", 0.0) or 0.0)
@@ -226,8 +252,7 @@ def merge_detections(dets, radius_m: float = _MERGE_RADIUS_M) -> list:
         weight = max(score, 1e-6)
         frame_ts = det.get("frame_ts") or None
         try:
-            frame_ts = ({int(t) for t in frame_ts}
-                        if frame_ts is not None else None)
+            frame_ts = {int(t) for t in frame_ts} if frame_ts is not None else None
         except (TypeError, ValueError):
             frame_ts = None
 
@@ -235,15 +260,30 @@ def merge_detections(dets, radius_m: float = _MERGE_RADIUS_M) -> list:
         for cand in fused:
             if cand["_key"] != key:
                 continue
-            if math.sqrt((cand["x"] - x) ** 2 + (cand["y"] - y) ** 2
-                         + (cand["z"] - z) ** 2) <= radius_m:
+            if (
+                math.sqrt(
+                    (cand["x"] - x) ** 2 + (cand["y"] - y) ** 2 + (cand["z"] - z) ** 2
+                )
+                <= radius_m
+            ):
                 match = cand
                 break
 
         if match is None:
-            fused.append({"label": label, "score": score, "x": x, "y": y,
-                          "z": z, "n_pixels": n_pixels, "n_frames": n_frames,
-                          "_key": key, "_w": weight, "_ts": frame_ts})
+            fused.append(
+                {
+                    "label": label,
+                    "score": score,
+                    "x": x,
+                    "y": y,
+                    "z": z,
+                    "n_pixels": n_pixels,
+                    "n_frames": n_frames,
+                    "_key": key,
+                    "_w": weight,
+                    "_ts": frame_ts,
+                }
+            )
             continue
         w0 = match["_w"]
         total = w0 + weight
@@ -281,8 +321,7 @@ def load_cell(path) -> dict:
 def iter_cells(corpus_root=DEFAULT_CORPUS_ROOT, env: str | None = None):
     """Yield (env, cache12, prompt_class, path) for every corpus cell."""
     root = Path(corpus_root)
-    env_dirs = [root / env] if env else sorted(
-        p for p in root.iterdir() if p.is_dir())
+    env_dirs = [root / env] if env else sorted(p for p in root.iterdir() if p.is_dir())
     for env_dir in env_dirs:
         for cache_dir in sorted(p for p in env_dir.iterdir() if p.is_dir()):
             for cell_path in sorted(cache_dir.glob("*.json")):
@@ -293,14 +332,24 @@ def cell_frame_universe(cell: dict) -> list:
     """Every frame timestamp with recorded support in the cell (the corpus
     does not record the full SCANNED frame list, only detection-bearing
     frames; Tier-2 masks over a map's actual keyframe list instead)."""
-    return sorted({int(t) for det in cell.get("detections", ())
-                   for t in (det.get("frame_ts") or ())})
+    return sorted(
+        {
+            int(t)
+            for det in cell.get("detections", ())
+            for t in (det.get("frame_ts") or ())
+        }
+    )
 
 
-def replay_cell(cell: dict, *, min_score: float, mask: MaskArtifact | None = None,
-                min_frames: int = DEFAULT_MIN_FRAMES,
-                min_pixels_single: int = DEFAULT_MIN_PIXELS_SINGLE,
-                required_confidence: float = 0.0) -> tuple:
+def replay_cell(
+    cell: dict,
+    *,
+    min_score: float,
+    mask: MaskArtifact | None = None,
+    min_frames: int = DEFAULT_MIN_FRAMES,
+    min_pixels_single: int = DEFAULT_MIN_PIXELS_SINGLE,
+    required_confidence: float = 0.0,
+) -> tuple:
     """Mask -> accept -> merge -> compute_status for one corpus cell.
 
     Returns ``(GroundingResult, provenance dict)``. Fully deterministic:
@@ -309,15 +358,21 @@ def replay_cell(cell: dict, *, min_score: float, mask: MaskArtifact | None = Non
     the negative record).
     """
     prompt_class = str(cell["prompt_class"])
-    query = GroundingQuery(predicate="exists", args=(prompt_class,),
-                           required_confidence=required_confidence)
+    query = GroundingQuery(
+        predicate="exists",
+        args=(prompt_class,),
+        required_confidence=required_confidence,
+    )
     dets = list(cell.get("detections", ()))
     n_raw = len(dets)
     if mask is not None:
         dets = apply_mask_to_detections(dets, mask.frames)
-    accepted = accept_detections(dets, min_score=min_score,
-                                 min_frames=min_frames,
-                                 min_pixels_single=min_pixels_single)
+    accepted = accept_detections(
+        dets,
+        min_score=min_score,
+        min_frames=min_frames,
+        min_pixels_single=min_pixels_single,
+    )
     merged = merge_detections(accepted)
 
     cell_id = f"{cell.get('env', '')}_{cell.get('cache12', '')}_{prompt_class}"
@@ -327,32 +382,46 @@ def replay_cell(cell: dict, *, min_score: float, mask: MaskArtifact | None = Non
         "n_after_mask": len(dets),
         "n_accepted": len(accepted),
         "n_merged": len(merged),
-        "mask": ({"generator": mask.generator, "seed": mask.seed,
-                  "n_masked": len(mask.masked_frame_ts)}
-                 if mask is not None else None),
-        "admissibility": {"min_score": min_score, "min_frames": min_frames,
-                          "min_pixels_single": min_pixels_single},
+        "mask": (
+            {
+                "generator": mask.generator,
+                "seed": mask.seed,
+                "n_masked": len(mask.masked_frame_ts),
+            }
+            if mask is not None
+            else None
+        ),
+        "admissibility": {
+            "min_score": min_score,
+            "min_frames": min_frames,
+            "min_pixels_single": min_pixels_single,
+        },
     }
 
     if merged:
         records = []
         for i, det in enumerate(merged):
             prov = dict(provenance_base)
-            prov.update({k: det.get(k) for k in _DETECTION_KEYS
-                         if det.get(k) is not None})
+            prov.update(
+                {k: det.get(k) for k in _DETECTION_KEYS if det.get(k) is not None}
+            )
             ts = det.get("frame_ts") or ()
             if ts:
                 prov["frame_ts_range"] = [min(ts), max(ts)]
-            records.append(EvidenceRecord(
-                evidence_id=f"{cell_id}_hit_{i}",
-                source=EvidenceSource.PRIOR_ARCHIVE,
-                polarity=Polarity.POSITIVE,
-                predicate=query.predicate, args=query.args,
-                t_recorded_ns=max(ts) if ts else 0,
-                confidence=det.get("score"),
-                t_collected_ns=max(ts) if ts else None,
-                session_id=cell.get("cache12"),
-                provenance=prov))
+            records.append(
+                EvidenceRecord(
+                    evidence_id=f"{cell_id}_hit_{i}",
+                    source=EvidenceSource.PRIOR_ARCHIVE,
+                    polarity=Polarity.POSITIVE,
+                    predicate=query.predicate,
+                    args=query.args,
+                    t_recorded_ns=max(ts) if ts else 0,
+                    confidence=det.get("score"),
+                    t_collected_ns=max(ts) if ts else None,
+                    session_id=cell.get("cache12"),
+                    provenance=prov,
+                )
+            )
         return compute_status(query, records), provenance_base
 
     # Completed scan, nothing admissible: an archive scan asserts nothing
@@ -362,11 +431,13 @@ def replay_cell(cell: dict, *, min_score: float, mask: MaskArtifact | None = Non
         evidence_id=f"{cell_id}_miss",
         source=EvidenceSource.PRIOR_ARCHIVE,
         polarity=Polarity.NEGATIVE,
-        predicate=query.predicate, args=query.args,
+        predicate=query.predicate,
+        args=query.args,
         t_recorded_ns=t_cell_ns,
         session_id=cell.get("cache12"),
         coverage=None,
-        provenance=provenance_base)
+        provenance=provenance_base,
+    )
     return compute_status(query, [negative]), provenance_base
 
 
@@ -454,10 +525,15 @@ def filter_keyframes(keyframes, masked_frames) -> list:
     return [kf for kf in keyframes if int(kf.timestamp_ns) not in masked]
 
 
-def replay_corpus(corpus_root=DEFAULT_CORPUS_ROOT, *, env: str | None = None,
-                  min_score: float, mask: MaskArtifact | None = None,
-                  min_frames: int = DEFAULT_MIN_FRAMES,
-                  min_pixels_single: int = DEFAULT_MIN_PIXELS_SINGLE) -> dict:
+def replay_corpus(
+    corpus_root=DEFAULT_CORPUS_ROOT,
+    *,
+    env: str | None = None,
+    min_score: float,
+    mask: MaskArtifact | None = None,
+    min_frames: int = DEFAULT_MIN_FRAMES,
+    min_pixels_single: int = DEFAULT_MIN_PIXELS_SINGLE,
+) -> dict:
     """Replay every cell -> ``{(env, cache12, prompt_class): Assertion}``.
 
     Assertion ids are the deterministic query hash (store discipline);
@@ -467,9 +543,13 @@ def replay_corpus(corpus_root=DEFAULT_CORPUS_ROOT, *, env: str | None = None,
     out = {}
     for env_name, cache12, prompt_class, path in iter_cells(corpus_root, env):
         result, _prov = replay_cell(
-            load_cell(path), min_score=min_score, mask=mask,
-            min_frames=min_frames, min_pixels_single=min_pixels_single)
+            load_cell(path),
+            min_score=min_score,
+            mask=mask,
+            min_frames=min_frames,
+            min_pixels_single=min_pixels_single,
+        )
         out[(env_name, cache12, prompt_class)] = Assertion.from_result(
-            result, computed_at_ns=0,
-            assertion_id=assertion_id_for(result.query))
+            result, computed_at_ns=0, assertion_id=assertion_id_for(result.query)
+        )
     return out

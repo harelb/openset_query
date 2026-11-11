@@ -4,6 +4,7 @@ The acceptance criterion is the parity property: the materialized VIEWS pairs mu
 match object_discovery._in_frustum decisions — i.e. exactly the view-set that
 drives detect_frustum_aware's skip logic — over randomized poses.
 """
+
 import numpy as np
 import pytest
 
@@ -41,16 +42,19 @@ def _random_quat(rng):
     return q / np.linalg.norm(q)
 
 
-_CALIB_KW = dict(fx=380.0, fy=380.0, cx=320.0, cy=240.0, width=640, height=480,
-                 depth_scale=1e-3)
+_CALIB_KW = dict(
+    fx=380.0, fy=380.0, cx=320.0, cy=240.0, width=640, height=480, depth_scale=1e-3
+)
 # Non-trivial body->sensor offset: 90 deg about x + a translation, so the test
 # exercises the full world_T_body @ body_T_sensor chain.
-_BODY_T_SENSOR = np.array([
-    [1, 0, 0, 0.1],
-    [0, 0, -1, 0.0],
-    [0, 1, 0, 0.2],
-    [0, 0, 0, 1.0],
-])
+_BODY_T_SENSOR = np.array(
+    [
+        [1, 0, 0, 0.1],
+        [0, 0, -1, 0.0],
+        [0, 1, 0, 0.2],
+        [0, 0, 0, 1.0],
+    ]
+)
 
 
 def _fixture(n_frames=12, n_objects=25, seed=7):
@@ -60,20 +64,35 @@ def _fixture(n_frames=12, n_objects=25, seed=7):
         pos = rng.uniform(-5, 5, size=3)
         qx, qy, qz, qw = _random_quat(rng)
         sym = f"F({i})"
-        frame_rows.append({
-            "ns": sym, "x": pos[0], "y": pos[1], "z": pos[2],
-            "qx": qx, "qy": qy, "qz": qz, "qw": qw,
-            "fx": _CALIB_KW["fx"], "fy": _CALIB_KW["fy"],
-            "cx": _CALIB_KW["cx"], "cy": _CALIB_KW["cy"],
-            "width": _CALIB_KW["width"], "height": _CALIB_KW["height"],
-            "bts": list(_BODY_T_SENSOR.reshape(-1)),
-        })
+        frame_rows.append(
+            {
+                "ns": sym,
+                "x": pos[0],
+                "y": pos[1],
+                "z": pos[2],
+                "qx": qx,
+                "qy": qy,
+                "qz": qz,
+                "qw": qw,
+                "fx": _CALIB_KW["fx"],
+                "fy": _CALIB_KW["fy"],
+                "cx": _CALIB_KW["cx"],
+                "cy": _CALIB_KW["cy"],
+                "width": _CALIB_KW["width"],
+                "height": _CALIB_KW["height"],
+                "bts": list(_BODY_T_SENSOR.reshape(-1)),
+            }
+        )
         world_T_body = visibility._pose_from_quat(
-            pos[0], pos[1], pos[2], qx, qy, qz, qw)
+            pos[0], pos[1], pos[2], qx, qy, qz, qw
+        )
         keyframes[sym] = Keyframe(
-            timestamp_ns=i, rgb_path="", depth_path="",
+            timestamp_ns=i,
+            rgb_path="",
+            depth_path="",
             world_T_body=world_T_body,
-            calib=CameraCalib(body_T_sensor=_BODY_T_SENSOR, **_CALIB_KW))
+            calib=CameraCalib(body_T_sensor=_BODY_T_SENSOR, **_CALIB_KW),
+        )
     object_rows = [
         {"ns": f"O({j})", "x": x, "y": y, "z": z}
         for j, (x, y, z) in enumerate(rng.uniform(-8, 8, size=(n_objects, 3)))
@@ -101,8 +120,9 @@ def test_views_match_in_frustum_parity():
     got = {(r["f"], r["o"]) for r in rows}
     assert got == expected
     assert expected, "degenerate fixture: no view pairs at all"
-    assert len(expected) < len(object_rows) * len(keyframes), \
+    assert len(expected) < len(object_rows) * len(keyframes), (
         "degenerate fixture: everything views everything"
+    )
 
     # u/v/depth_m carry the actual projection, inside the padded bounds.
     objects_by_ns = {o["ns"]: o for o in object_rows}
@@ -112,7 +132,9 @@ def test_views_match_in_frustum_parity():
         u, v, z, ok = visibility._project_batch(
             kf.world_T_body,
             {"body_T_sensor": _BODY_T_SENSOR, **_CALIB_KW},
-            [[o["x"], o["y"], o["z"]]], max_depth_m=max_depth_m)
+            [[o["x"], o["y"], o["z"]]],
+            max_depth_m=max_depth_m,
+        )
         assert ok[0]
         assert r["u"] == pytest.approx(u[0])
         assert r["v"] == pytest.approx(v[0])
@@ -134,29 +156,37 @@ def test_views_match_frustum_skip_set_per_frame():
 
     centroids = [np.array([o["x"], o["y"], o["z"]]) for o in object_rows]
     skip_set = {
-        sym for sym, kf in keyframes.items()
+        sym
+        for sym, kf in keyframes.items()
         if any(_in_frustum(c, kf, max_depth_m=max_depth_m) for c in centroids)
     }
     assert frames_with_views == skip_set
 
 
 def test_project_batch_gates():
-    calib = {"body_T_sensor": np.eye(4), "fx": 100.0, "fy": 100.0,
-             "cx": 320.0, "cy": 240.0, "width": 640, "height": 480}
+    calib = {
+        "body_T_sensor": np.eye(4),
+        "fx": 100.0,
+        "fy": 100.0,
+        "cx": 320.0,
+        "cy": 240.0,
+        "width": 640,
+        "height": 480,
+    }
     pts = [
-        [0, 0, 2],      # dead center, in view
-        [0, 0, -2],     # behind the camera
-        [0, 0, 0.05],   # closer than the 0.1 m front gate
-        [0, 0, 50],     # beyond max_depth
-        [10, 0, 2],     # u = 820, off image
+        [0, 0, 2],  # dead center, in view
+        [0, 0, -2],  # behind the camera
+        [0, 0, 0.05],  # closer than the 0.1 m front gate
+        [0, 0, 50],  # beyond max_depth
+        [10, 0, 2],  # u = 820, off image
     ]
-    u, v, z, ok = visibility._project_batch(np.eye(4), calib, pts,
-                                            max_depth_m=10.0)
+    u, v, z, ok = visibility._project_batch(np.eye(4), calib, pts, max_depth_m=10.0)
     assert list(ok) == [True, False, False, False, False]
     assert u[0] == 320.0 and v[0] == 240.0 and z[0] == 2.0
     # margin widens the image bound gate
-    *_, ok_margin = visibility._project_batch(np.eye(4), calib, pts,
-                                              margin=200.0, max_depth_m=10.0)
+    *_, ok_margin = visibility._project_batch(
+        np.eye(4), calib, pts, margin=200.0, max_depth_m=10.0
+    )
     assert bool(ok_margin[4])
     # no depth ceiling: the far point is a view
     *_, ok_nodepth = visibility._project_batch(np.eye(4), calib, pts)
@@ -169,8 +199,7 @@ def test_object_filter_and_empty_graph():
     db.respond("MATCH (o:Object) WHERE o.pos_x IS NOT NULL", object_rows)
     db.respond("MATCH (n:TrajectoryFrame)-[:HAS_CALIB]", frame_rows)
     visibility.materialize_views(db, object_symbols=["O(1)", "O(2)"])
-    obj_queries = [(c, p) for c, p in db.executed
-                   if "RETURN o.nodeSymbol AS ns" in c]
+    obj_queries = [(c, p) for c, p in db.executed if "RETURN o.nodeSymbol AS ns" in c]
     assert obj_queries
     assert all(p.get("syms") == ["O(1)", "O(2)"] for _, p in obj_queries)
 

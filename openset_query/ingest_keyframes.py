@@ -33,25 +33,40 @@ def _quat_from_R(R: np.ndarray) -> tuple:
         i = int(np.argmax([R[0, 0], R[1, 1], R[2, 2]]))
         if i == 0:
             s = np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2
-            qw = (R[2, 1] - R[1, 2]) / s; qx = 0.25 * s
-            qy = (R[0, 1] + R[1, 0]) / s; qz = (R[0, 2] + R[2, 0]) / s
+            qw = (R[2, 1] - R[1, 2]) / s
+            qx = 0.25 * s
+            qy = (R[0, 1] + R[1, 0]) / s
+            qz = (R[0, 2] + R[2, 0]) / s
         elif i == 1:
             s = np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2
-            qw = (R[0, 2] - R[2, 0]) / s; qx = (R[0, 1] + R[1, 0]) / s
-            qy = 0.25 * s; qz = (R[1, 2] + R[2, 1]) / s
+            qw = (R[0, 2] - R[2, 0]) / s
+            qx = (R[0, 1] + R[1, 0]) / s
+            qy = 0.25 * s
+            qz = (R[1, 2] + R[2, 1]) / s
         else:
             s = np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2
-            qw = (R[1, 0] - R[0, 1]) / s; qx = (R[0, 2] + R[2, 0]) / s
-            qy = (R[1, 2] + R[2, 1]) / s; qz = 0.25 * s
+            qw = (R[1, 0] - R[0, 1]) / s
+            qx = (R[0, 2] + R[2, 0]) / s
+            qy = (R[1, 2] + R[2, 1]) / s
+            qz = 0.25 * s
     return float(qw), float(qx), float(qy), float(qz)
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description="Ingest keyframes into TrajectoryFrameIndex")
-    p.add_argument("--image-store", required=True, nargs="+",
-                   help="image store directory (one per robot)")
-    p.add_argument("--dsg", default=None,
-                   help="dsg.json used to compose anchored poses (default: odometry)")
+    p = argparse.ArgumentParser(
+        description="Ingest keyframes into TrajectoryFrameIndex"
+    )
+    p.add_argument(
+        "--image-store",
+        required=True,
+        nargs="+",
+        help="image store directory (one per robot)",
+    )
+    p.add_argument(
+        "--dsg",
+        default=None,
+        help="dsg.json used to compose anchored poses (default: odometry)",
+    )
     p.add_argument("--stride", type=int, default=1)
     p.add_argument("--embed-model", default="siglip2")
     p.add_argument("--no-place-attribution", action="store_true")
@@ -68,13 +83,20 @@ def main(argv=None):
     pose_lookup = load_dsg(args.dsg) if args.dsg else None
 
     uri = os.getenv("HERACLES_NEO4J_URI", "bolt://localhost:7690")
-    auth = (os.getenv("HERACLES_NEO4J_USERNAME", "neo4j"),
-            os.getenv("HERACLES_NEO4J_PASSWORD", "testpass"))
-    db = Neo4jWrapper(uri, auth, atomic_queries=True); db.connect()
+    auth = (
+        os.getenv("HERACLES_NEO4J_USERNAME", "neo4j"),
+        os.getenv("HERACLES_NEO4J_PASSWORD", "testpass"),
+    )
+    db = Neo4jWrapper(uri, auth, atomic_queries=True)
+    db.connect()
     embedder = SigLip2Embedder(device="cuda")
     idx = TrajectoryFrameIndex(db, embedder)
-    n = idx.ingest_store(store, pose_lookup=pose_lookup, sample_stride=args.stride,
-                         place_attribution=not args.no_place_attribution)
+    n = idx.ingest_store(
+        store,
+        pose_lookup=pose_lookup,
+        sample_stride=args.stride,
+        place_attribution=not args.no_place_attribution,
+    )
     print(f"ingested {n} TrajectoryFrame nodes")
 
     # Vector index for db.index.vector.queryNodes (idempotent; required by query_by_text).
@@ -93,8 +115,10 @@ def main(argv=None):
     print(f"provenance: {n_calib} HAS_CALIB edges, {n_obs} OBSERVED_IN edges")
 
     res = idx.query_by_text("car", k=5)
-    print(f"query_by_text('car') -> {len(res)} frames; top:",
-          [(r.get("nodeSymbol"), round(r.get("score", 0), 3)) for r in res[:3]])
+    print(
+        f"query_by_text('car') -> {len(res)} frames; top:",
+        [(r.get("nodeSymbol"), round(r.get("score", 0), 3)) for r in res[:3]],
+    )
 
 
 if __name__ == "__main__":

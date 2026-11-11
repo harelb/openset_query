@@ -37,7 +37,9 @@ class CameraCalib:
     body_T_sensor: np.ndarray
 
     def __post_init__(self):
-        self.body_T_sensor = np.asarray(self.body_T_sensor, dtype=np.float64).reshape(4, 4)
+        self.body_T_sensor = np.asarray(self.body_T_sensor, dtype=np.float64).reshape(
+            4, 4
+        )
 
 
 @dataclass
@@ -120,11 +122,14 @@ def depth_mode_gate(
     return (idx >= lo) & (idx <= hi)
 
 
-def valid_depth_mask(depth_m: np.ndarray, min_depth_m: float = 0.2,
-                     max_depth_m: float = 15.0) -> np.ndarray:
+def valid_depth_mask(
+    depth_m: np.ndarray, min_depth_m: float = 0.2, max_depth_m: float = 15.0
+) -> np.ndarray:
     """Pixels with a finite depth in ``[min_depth_m, max_depth_m]``."""
     with np.errstate(invalid="ignore"):
-        return np.isfinite(depth_m) & (depth_m >= min_depth_m) & (depth_m <= max_depth_m)
+        return (
+            np.isfinite(depth_m) & (depth_m >= min_depth_m) & (depth_m <= max_depth_m)
+        )
 
 
 def mask_to_points(
@@ -157,8 +162,9 @@ def mask_to_points(
     # at a different size) would raise on the boolean-and; treat it as "no points"
     # rather than crashing the whole discovery over one frame.
     if mask.shape != depth_m.shape:
-        logger.warning("mask shape %s != depth shape %s; skipping frame",
-                       mask.shape, depth_m.shape)
+        logger.warning(
+            "mask shape %s != depth shape %s; skipping frame", mask.shape, depth_m.shape
+        )
         return np.empty((0, 3), dtype=np.float64)
 
     if valid_depth is None:

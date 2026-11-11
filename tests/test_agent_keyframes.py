@@ -1,4 +1,5 @@
 """Agents' own keyframes vs the other keyframes (the old KEYFRAME / SUBKEYFRAME split)."""
+
 import datetime
 
 import numpy as np
@@ -39,7 +40,9 @@ def test_own_keyframe_with_the_node_stamp_is_agent_frame(tmp_path):
     with ImageStore.open(store_dir) as s:
         # the stamp wins over the identity fallback
         assert ak.own_keyframe(s, node_id("a0"), 15).timestamp_ns == 15
-        assert ak.own_keyframe(s, node_id("a0"), 10 + 10**9) is None   # nothing within 50 ms
+        assert (
+            ak.own_keyframe(s, node_id("a0"), 10 + 10**9) is None
+        )  # nothing within 50 ms
         stamps = {node_id("a0"): 15, node_id("a1"): None}.get
         assert [f.timestamp_ns for f in ak.keyframes(s, False, stamps)] == [15, 20]
 
@@ -67,7 +70,7 @@ def test_sam3_write_back_survives_reindexing(tmp_path):
     """SAM3 observations recorded into an indexed run's store keep their external
     tracks when the indexer refreshes the store."""
     run = tmp_path / "run"
-    (run / "tracks").mkdir(parents=True)              # a run the indexer knows
+    (run / "tracks").mkdir(parents=True)  # a run the indexer knows
     sb = build_store(run / "image_store", size=(20, 20))
     sb.frame(42, anchor=node_id("a0"))
     sb.close()
@@ -75,8 +78,11 @@ def test_sam3_write_back_survives_reindexing(tmp_path):
         (kf,) = ks.load_keyframes_from_store(s)
 
     w = od.open_sam3_writer(str(run))
-    od.record_observations(w, "O1", [od.Observation(42, "", (1, 2, 4, 6), kf.rgb_path,
-                                                    score=0.7, keyframe=kf)])
+    od.record_observations(
+        w,
+        "O1",
+        [od.Observation(42, "", (1, 2, 4, 6), kf.rgb_path, score=0.7, keyframe=kf)],
+    )
     w.close()
     image_store.index(run)
     with ImageStore.open(run, index=False) as s:

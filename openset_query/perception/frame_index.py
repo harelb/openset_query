@@ -134,7 +134,9 @@ class TrajectoryFrameIndex:
                 except Exception as exc:
                     logger.warning("ingest: could not read %s: %s", meta_path, exc)
 
-            ts_ns: int = int(meta.get("timestamp_ns", int(os.path.getmtime(path) * 1e9)))
+            ts_ns: int = int(
+                meta.get("timestamp_ns", int(os.path.getmtime(path) * 1e9))
+            )
             pos_x: float = float(meta.get("pos_x", 0.0))
             pos_y: float = float(meta.get("pos_y", 0.0))
             pos_z: float = float(meta.get("pos_z", 0.0))
@@ -232,10 +234,18 @@ class TrajectoryFrameIndex:
         ``load_dsg(...)``, mapping or callable) with the odometry as fallback. Returns
         the number of frames written.
         """
-        from openset_query.perception.agent_keyframes import keyframes, stamps_from_graph
+        from openset_query.perception.agent_keyframes import (
+            keyframes,
+            stamps_from_graph,
+        )
 
-        frames = [f for f in keyframes(store, include_subkeyframes, stamps_from_graph(pose_lookup))
-                  if f.rgb_path is not None]
+        frames = [
+            f
+            for f in keyframes(
+                store, include_subkeyframes, stamps_from_graph(pose_lookup)
+            )
+            if f.rgb_path is not None
+        ]
         frames = frames[::sample_stride]
         if not frames:
             logger.warning("ingest_store: no frames with images in %s", store.roots)
@@ -246,12 +256,19 @@ class TrajectoryFrameIndex:
         for f in frames:
             T, _ = store.body_pose(f, pose_lookup)
             qw, qx, qy, qz = _quat_from_R(T[:3, :3])
-            raw_frames.append({
-                "path": str(f.rgb_path),
-                "timestamp_ns": int(f.timestamp_ns),
-                "pos_x": float(T[0, 3]), "pos_y": float(T[1, 3]), "pos_z": float(T[2, 3]),
-                "pose_qw": qw, "pose_qx": qx, "pose_qy": qy, "pose_qz": qz,
-            })
+            raw_frames.append(
+                {
+                    "path": str(f.rgb_path),
+                    "timestamp_ns": int(f.timestamp_ns),
+                    "pos_x": float(T[0, 3]),
+                    "pos_y": float(T[1, 3]),
+                    "pos_z": float(T[2, 3]),
+                    "pose_qw": qw,
+                    "pose_qx": qx,
+                    "pose_qy": qy,
+                    "pose_qz": qz,
+                }
+            )
         return self._ingest_raw(raw_frames, place_attribution)
 
     # ------------------------------------------------------------------
@@ -290,7 +307,9 @@ class TrajectoryFrameIndex:
             ``pos_x``, ``pos_y``, ``pos_z``, ``place_id``, ``timestamp_ns``.
         """
         query_vec = self._embedder.embed_text([text])[0]
-        return self._semantic_query(query_vec, k=k, radius_m=radius_m, center_xyz=center_xyz)
+        return self._semantic_query(
+            query_vec, k=k, radius_m=radius_m, center_xyz=center_xyz
+        )
 
     def query_by_image(
         self,
@@ -317,7 +336,9 @@ class TrajectoryFrameIndex:
             3-D centre point ``[x, y, z]`` for spatial pre-filtering.
         """
         query_vec = self._embedder.embed_images([image])[0]
-        return self._semantic_query(query_vec, k=k, radius_m=radius_m, center_xyz=center_xyz)
+        return self._semantic_query(
+            query_vec, k=k, radius_m=radius_m, center_xyz=center_xyz
+        )
 
     def lookup_near(
         self,
@@ -355,7 +376,9 @@ class TrajectoryFrameIndex:
             "       f.place_id AS place_id, f.timestamp_ns AS timestamp_ns\n"
             "ORDER BY dist ASC LIMIT $k"
         )
-        records, _, _ = self._db.execute(cypher, cx=cx, cy=cy, cz=cz, r=float(radius_m), k=k)
+        records, _, _ = self._db.execute(
+            cypher, cx=cx, cy=cy, cz=cz, r=float(radius_m), k=k
+        )
         return [dict(r) for r in records]
 
     # ------------------------------------------------------------------
@@ -449,6 +472,5 @@ class TrajectoryFrameIndex:
         _, idxs = tree.query(frame_coords, k=1)
 
         return {
-            rf["nodeSymbol"]: place_symbols[idx]
-            for rf, idx in zip(raw_frames, idxs)
+            rf["nodeSymbol"]: place_symbols[idx] for rf, idx in zip(raw_frames, idxs)
         }

@@ -5,6 +5,7 @@ tests write through the real ``upsert_objects`` / ``admit_object`` path and need
 THROWAWAY Neo4j (``NEO4J_URI`` / ``NEO4J_AUTH``, same convention as
 tests/test_sim_live_tier_db.py); they only delete the objects they create.
 """
+
 import io
 import json
 import os
@@ -47,7 +48,9 @@ class FakeSegmenter:
 
     def segment(self, image, prompts):
         self.calls += 1
-        return [Detection(label=prompts[0], mask=_mask(), box=np.array(MASK_BOX), score=0.8)]
+        return [
+            Detection(label=prompts[0], mask=_mask(), box=np.array(MASK_BOX), score=0.8)
+        ]
 
 
 class FakeEF:
@@ -65,7 +68,12 @@ def _store(tmp_path, n=3):
     for i in range(n):
         T = np.eye(4)
         T[0, 3] = 0.05 * i  # small baseline: all views fuse into one object
-        b.frame(1000 + i, color=(40 * i, 200, 30), anchor=image_store.make_node_id("a", i), pose=T)
+        b.frame(
+            1000 + i,
+            color=(40 * i, 200, 30),
+            anchor=image_store.make_node_id("a", i),
+            pose=T,
+        )
     return b.close()
 
 
@@ -106,13 +114,30 @@ def test_observation_mask_compaction_roundtrip():
 def test_build_candidates_payload(tmp_path):
     store_dir = _store(tmp_path, 1)
     kf = _keyframes(store_dir)[0]
-    obs = od.Observation(timestamp_ns=kf.timestamp_ns, mask_file="", bbox_2d=(20, 10, 39, 29),
-                         rgb_path=kf.rgb_path, score=0.8, keyframe=kf, mask=_mask())
-    obj = Object3D(label="mug", centroid=np.array([1.0, 2.0, 0.5]),
-                   bbox_min=np.array([0.9, 1.9, 0.4]), bbox_max=np.array([1.1, 2.1, 0.6]),
-                   num_points=400, score=0.8)
-    existing = [("O7", np.array([1.2, 2.0, 0.5]), "mug"), ("O8", np.array([1.0, 2.0, 0.5]), "chair")]
-    (c,) = qs.build_candidates([od.DiscoveredObject(obj=obj, observations=[obs])], existing)
+    obs = od.Observation(
+        timestamp_ns=kf.timestamp_ns,
+        mask_file="",
+        bbox_2d=(20, 10, 39, 29),
+        rgb_path=kf.rgb_path,
+        score=0.8,
+        keyframe=kf,
+        mask=_mask(),
+    )
+    obj = Object3D(
+        label="mug",
+        centroid=np.array([1.0, 2.0, 0.5]),
+        bbox_min=np.array([0.9, 1.9, 0.4]),
+        bbox_max=np.array([1.1, 2.1, 0.6]),
+        num_points=400,
+        score=0.8,
+    )
+    existing = [
+        ("O7", np.array([1.2, 2.0, 0.5]), "mug"),
+        ("O8", np.array([1.0, 2.0, 0.5]), "chair"),
+    ]
+    (c,) = qs.build_candidates(
+        [od.DiscoveredObject(obj=obj, observations=[obs])], existing
+    )
     assert c["index"] == 0 and c["label"] == "mug" and c["num_points"] == 400
     assert c["centroid"] == [1.0, 2.0, 0.5] and c["bbox_max"] == [1.1, 2.1, 0.6]
     assert c["would_merge_into"] == {"symbol": "O7", "distance_m": 0.2}
@@ -120,7 +145,10 @@ def test_build_candidates_payload(tmp_path):
     assert v["frame_id"] == kf.frame_id and v["timestamp_ns"] == kf.timestamp_ns
     assert v["bbox_2d"] == [20, 10, 39, 29] and v["mask_shape"] == [H, W]
     assert np.array_equal(rle_decode(v["mask_rle"], (H, W)), _mask())
-    assert v["image_uri"].startswith("data:image/jpeg;base64,") and c["image_uri"] == v["image_uri"]
+    assert (
+        v["image_uri"].startswith("data:image/jpeg;base64,")
+        and c["image_uri"] == v["image_uri"]
+    )
     json.dumps(c)  # JSON-serializable as is
 
 
@@ -137,11 +165,17 @@ def test_live_store_keyframes_are_tagged(tmp_path):
     b = build_store(live / "robot1" / "1760000000" / "image_store")
     b.frame(5, anchor=image_store.make_node_id("a", 0))
     b.close()
-    assert qs.find_live_stores(live) == [str(live / "robot1" / "1760000000" / "image_store")]
+    assert qs.find_live_stores(live) == [
+        str(live / "robot1" / "1760000000" / "image_store")
+    ]
     (kf,) = qs.load_live_keyframes(live)
-    assert kf.store_dir.endswith("image_store") and kf.cache_ns == "live/robot1/1760000000"
+    assert (
+        kf.store_dir.endswith("image_store") and kf.cache_ns == "live/robot1/1760000000"
+    )
     assert EmbeddingFilter.frame_key(kf) == f"live/robot1/1760000000:f{kf.frame_id}"
-    assert qs.find_live_stores(None) == [] and qs.find_live_stores(tmp_path / "nope") == []
+    assert (
+        qs.find_live_stores(None) == [] and qs.find_live_stores(tmp_path / "nope") == []
+    )
 
 
 class _Resp(io.BytesIO):
@@ -171,7 +205,9 @@ def test_client_dry_run_commit_discard_payloads(monkeypatch):
 
 def test_client_commit_404_carries_status(monkeypatch):
     def fake(req, timeout=0):
-        raise urllib.error.HTTPError(req.full_url, 404, "nf", {}, io.BytesIO(b'{"error": "x"}'))
+        raise urllib.error.HTTPError(
+            req.full_url, 404, "nf", {}, io.BytesIO(b'{"error": "x"}')
+        )
 
     monkeypatch.setattr(qc.urllib.request, "urlopen", fake)
     with pytest.raises(qc.Sam3QueryError) as e:
@@ -234,7 +270,9 @@ def test_http_routes(http_stub):
 # ---------------------------------------------------------------------------
 
 _NEO4J_URI = os.environ.get("NEO4J_URI", "")
-needs_db = pytest.mark.skipif(not _NEO4J_URI, reason="NEO4J_URI not set (throwaway DB required)")
+needs_db = pytest.mark.skipif(
+    not _NEO4J_URI, reason="NEO4J_URI not set (throwaway DB required)"
+)
 LABEL = "dry run test mug"
 LABEL2 = "dry run test kettle"
 
@@ -259,9 +297,14 @@ def db():
 
 
 def _wipe(db):
-    db.execute("MATCH (o:Object)-[:HAS_OBSERVATION]->(x:Observation) WHERE o.class IN $c "
-               "DETACH DELETE x", c=[LABEL, LABEL2])
-    db.execute("MATCH (o:Object) WHERE o.class IN $c DETACH DELETE o", c=[LABEL, LABEL2])
+    db.execute(
+        "MATCH (o:Object)-[:HAS_OBSERVATION]->(x:Observation) WHERE o.class IN $c "
+        "DETACH DELETE x",
+        c=[LABEL, LABEL2],
+    )
+    db.execute(
+        "MATCH (o:Object) WHERE o.class IN $c DETACH DELETE o", c=[LABEL, LABEL2]
+    )
 
 
 def _versions(db):
@@ -272,15 +315,24 @@ def _versions(db):
 
 def _engine(tmp_path):
     store_dir = _store(tmp_path)
-    eng = qs.QueryEngine(_NEO4J_URI, _auth(), Sam3FrontendConfig(device="cpu"),
-                         image_store=[str(store_dir)], segmenter=FakeSegmenter(),
-                         embedding_filter=FakeEF(), keyframes=_keyframes(store_dir))
+    eng = qs.QueryEngine(
+        _NEO4J_URI,
+        _auth(),
+        Sam3FrontendConfig(device="cpu"),
+        image_store=[str(store_dir)],
+        segmenter=FakeSegmenter(),
+        embedding_filter=FakeEF(),
+        keyframes=_keyframes(store_dir),
+    )
     return eng, store_dir
 
 
 def _objects(db, label):
-    rows, _, _ = db.execute("MATCH (o:Object {class: $c}) RETURN o.nodeSymbol AS s, "
-                            "o.admission_status AS st, o.admission_policy_version AS pv", c=label)
+    rows, _, _ = db.execute(
+        "MATCH (o:Object {class: $c}) RETURN o.nodeSymbol AS s, "
+        "o.admission_status AS st, o.admission_policy_version AS pv",
+        c=label,
+    )
     return rows
 
 
@@ -307,19 +359,36 @@ def test_dry_run_writes_nothing_then_commit_writes_admits_and_bumps(db, tmp_path
     assert out["created"] and not out["merged"] and not out["already_committed"]
     sym = out["symbol"]
     (row,) = _objects(db, LABEL)
-    assert row["s"] == sym and row["st"] == "admitted" and row["pv"] == qs.HUMAN_CONSOLE_POLICY
-    assert (out["state_version"], out["map_version"]) == (v0[0] + 1, v0[1] + 1) == _versions(db)
-    n_obs, _, _ = db.execute("MATCH (:Object {nodeSymbol: $s})-[:HAS_OBSERVATION]->(x) "
-                             "RETURN count(x) AS n", s=sym)
+    assert (
+        row["s"] == sym
+        and row["st"] == "admitted"
+        and row["pv"] == qs.HUMAN_CONSOLE_POLICY
+    )
+    assert (
+        (out["state_version"], out["map_version"])
+        == (v0[0] + 1, v0[1] + 1)
+        == _versions(db)
+    )
+    n_obs, _, _ = db.execute(
+        "MATCH (:Object {nodeSymbol: $s})-[:HAS_OBSERVATION]->(x) RETURN count(x) AS n",
+        s=sym,
+    )
     assert n_obs[0]["n"] == 3 and len(out["observation_ids"]) == 3
     # the masks reached the image store (RLE + kept PNG)
     with ImageStore.open(store_dir) as s:
         obs = s.observations(od._node_value(sym))
-        assert len(obs) == 3 and all(o.kept and o.mask_path and o.mask_path.exists() for o in obs)
+        assert len(obs) == 3 and all(
+            o.kept and o.mask_path and o.mask_path.exists() for o in obs
+        )
         assert np.array_equal(s.mask(obs[0]), _mask())
         assert {o.frame_id for o in obs} == {kf.frame_id for kf in eng.keyframes}
     # no allocator placeholder left behind
-    assert db.execute("MATCH (o:Object) WHERE o._alloc_token IS NOT NULL RETURN count(o) AS n")[0][0]["n"] == 0
+    assert (
+        db.execute(
+            "MATCH (o:Object) WHERE o._alloc_token IS NOT NULL RETURN count(o) AS n"
+        )[0][0]["n"]
+        == 0
+    )
 
     again = eng.commit(r["pending_id"], 0)
     assert again["already_committed"] and again["symbol"] == sym
@@ -371,4 +440,6 @@ def test_claim_object_index_is_unique_under_concurrency(db):
     try:
         assert not errors and len(set(got)) == 8 and min(got) > 90001
     finally:
-        db.execute("MATCH (o:Object) WHERE o._alloc_token IN $t DETACH DELETE o", t=tokens)
+        db.execute(
+            "MATCH (o:Object) WHERE o._alloc_token IN $t DETACH DELETE o", t=tokens
+        )

@@ -63,6 +63,7 @@ Import contract: stdlib only at module scope (same as the rest of
 ``evidence/``); the neo4j wrapper is never imported here at all -- callers pass
 a ``db`` handle.
 """
+
 from __future__ import annotations
 
 from typing import Iterable
@@ -186,14 +187,23 @@ def dedup_admission_case(var: str = "o") -> str:
 # ---------------------------------------------------------------------------
 
 
-def _set_admission(db, node_symbol: str, status: str, *, policy_version: str,
-                   observation_ids: Iterable[str] = (), reason=None,
-                   belief=None) -> None:
+def _set_admission(
+    db,
+    node_symbol: str,
+    status: str,
+    *,
+    policy_version: str,
+    observation_ids: Iterable[str] = (),
+    reason=None,
+    belief=None,
+) -> None:
     if status not in ADMISSION_VALUES:
         raise ValueError(f"unknown admission status {status!r}")
     if not policy_version:
-        raise ValueError("policy_version is required: an admission is only "
-                         "meaningful relative to the policy that made it")
+        raise ValueError(
+            "policy_version is required: an admission is only "
+            "meaningful relative to the policy that made it"
+        )
     sets = [
         f"o.{ADMISSION_STATUS} = $status",
         f"o.{ADMISSION_POLICY_VERSION} = $policy",
@@ -211,12 +221,17 @@ def _set_admission(db, node_symbol: str, status: str, *, policy_version: str,
     if belief is not None:
         sets.append(f"o.{ADMISSION_BELIEF} = $belief")
         params["belief"] = float(belief)
-    db.execute(
-        "MATCH (o:Object {nodeSymbol: $sym}) SET " + ", ".join(sets), **params)
+    db.execute("MATCH (o:Object {nodeSymbol: $sym}) SET " + ", ".join(sets), **params)
 
 
-def admit_object(db, node_symbol: str, *, policy_version: str,
-                 observation_ids: Iterable[str] = (), belief=None) -> None:
+def admit_object(
+    db,
+    node_symbol: str,
+    *,
+    policy_version: str,
+    observation_ids: Iterable[str] = (),
+    belief=None,
+) -> None:
     """Record that *node_symbol* passed admission under *policy_version*.
 
     Idempotent (a plain property SET). ``observation_ids`` is the evidence the
@@ -225,23 +240,30 @@ def admit_object(db, node_symbol: str, *, policy_version: str,
     measured confidence (see :data:`ADMISSION_BELIEF`); omit it when the
     admitting authority has no graded signal.
     """
-    _set_admission(db, node_symbol, ADMITTED, policy_version=policy_version,
-                   observation_ids=observation_ids, belief=belief)
+    _set_admission(
+        db,
+        node_symbol,
+        ADMITTED,
+        policy_version=policy_version,
+        observation_ids=observation_ids,
+        belief=belief,
+    )
 
 
-def reject_object(db, node_symbol: str, *, policy_version: str,
-                  reason: str) -> None:
+def reject_object(db, node_symbol: str, *, policy_version: str, reason: str) -> None:
     """Record that *node_symbol* FAILED admission under *policy_version*.
 
     An explicit rejection beats the ``prior_map_legacy_v0`` grandfathering: a
     rejected object is unplannable even with no detector markers. Idempotent.
     """
-    _set_admission(db, node_symbol, REJECTED, policy_version=policy_version,
-                   reason=reason)
+    _set_admission(
+        db, node_symbol, REJECTED, policy_version=policy_version, reason=reason
+    )
 
 
-def mark_trusted_prior(db, node_symbol: str, *,
-                       policy_version: str = PRIOR_MAP_POLICY_VERSION) -> None:
+def mark_trusted_prior(
+    db, node_symbol: str, *, policy_version: str = PRIOR_MAP_POLICY_VERSION
+) -> None:
     """Stamp an ingested prior-map object as a trusted prior (explicit form of
     the grandfathering, used by the spark_dsg -> DB ingest)."""
     _set_admission(db, node_symbol, TRUSTED_PRIOR, policy_version=policy_version)
@@ -251,5 +273,6 @@ def admission_status(db, node_symbol: str):
     """Current ``admission_status`` of *node_symbol* (``None`` if unset/absent)."""
     records, _, _ = db.execute(
         f"MATCH (o:Object {{nodeSymbol: $sym}}) RETURN o.{ADMISSION_STATUS} AS s",
-        sym=node_symbol)
+        sym=node_symbol,
+    )
     return records[0]["s"] if records else None

@@ -50,7 +50,7 @@ class Observation:
     #: geometric-consistency input for the admission policies.
     view_xyz: Optional[tuple] = None
     #: SigLIP2 cosine of the detection crop against the queried prompt, the
-    #: prompt itself, and the per-control-prompt cosines (raw terms; 
+    #: prompt itself, and the per-control-prompt cosines (raw terms;
     #: forbids persisting only the derived margin). Filled by
     #: attach_crop_evidence; None when no policy/embedder is configured.
     target_prompt: Optional[str] = None
@@ -110,19 +110,28 @@ def _segment_kf(segmenter, kf, rgb, prompts):
     return segmenter.segment(rgb, prompts)
 
 
-def associate(per_view: List["DiscoveredObject"], config: Sam3FrontendConfig,
-              embeddings=None) -> List["DiscoveredObject"]:
+def associate(
+    per_view: List["DiscoveredObject"], config: Sam3FrontendConfig, embeddings=None
+) -> List["DiscoveredObject"]:
     """Group a query's per-view detections into objects: the 3D clustering of
     :mod:`association` (``config.association == "cluster"``, default) or the
     legacy greedy centroid fusion (``"centroid"``)."""
     if getattr(config, "association", "cluster") == "centroid":
-        return _fuse(per_view, config.fuse_centroid_dist_m, config.depth_percentile_lo,
-                     config.depth_percentile_hi)
-    from openset_query.association import (
-        cluster_detections, params_from_config)
+        return _fuse(
+            per_view,
+            config.fuse_centroid_dist_m,
+            config.depth_percentile_lo,
+            config.depth_percentile_hi,
+        )
+    from openset_query.association import cluster_detections, params_from_config
 
-    return cluster_detections(per_view, params_from_config(config), embeddings,
-                              config.depth_percentile_lo, config.depth_percentile_hi)
+    return cluster_detections(
+        per_view,
+        params_from_config(config),
+        embeddings,
+        config.depth_percentile_lo,
+        config.depth_percentile_hi,
+    )
 
 
 def _mean_color(rgb: np.ndarray, mask: np.ndarray) -> tuple:
@@ -144,8 +153,9 @@ def _bbox_from_mask(mask: np.ndarray) -> tuple:
     return (int(us.min()), int(vs.min()), int(us.max()), int(vs.max()))
 
 
-def _views_from_detections(dets, rgb, depth_m, kf, config, mask_output_dir=None
-                           ) -> List["DiscoveredObject"]:
+def _views_from_detections(
+    dets, rgb, depth_m, kf, config, mask_output_dir=None
+) -> List["DiscoveredObject"]:
     """Reproject one frame's detections into per-view ``DiscoveredObject``s.
 
     The depth-validity mask is computed once per frame, and a detection whose
@@ -160,29 +170,65 @@ def _views_from_detections(dets, rgb, depth_m, kf, config, mask_output_dir=None
     valid = None
     for det in dets:
         if det.mask.shape != depth_m.shape:
-            pts = mask_to_points(det.mask, depth_m, kf.calib, kf.world_T_body,
-                                 min_depth_m=config.min_depth_m, max_depth_m=config.max_depth_m)
+            pts = mask_to_points(
+                det.mask,
+                depth_m,
+                kf.calib,
+                kf.world_T_body,
+                min_depth_m=config.min_depth_m,
+                max_depth_m=config.max_depth_m,
+            )
         else:
             if valid is None:
-                valid = valid_depth_mask(depth_m, config.min_depth_m, config.max_depth_m)
+                valid = valid_depth_mask(
+                    depth_m, config.min_depth_m, config.max_depth_m
+                )
             if np.count_nonzero(det.mask & valid) < config.min_mask_depth_pixels:
                 continue
-            pts = mask_to_points(det.mask, depth_m, kf.calib, kf.world_T_body,
-                                 min_depth_m=config.min_depth_m, max_depth_m=config.max_depth_m,
-                                 valid_depth=valid)
+            pts = mask_to_points(
+                det.mask,
+                depth_m,
+                kf.calib,
+                kf.world_T_body,
+                min_depth_m=config.min_depth_m,
+                max_depth_m=config.max_depth_m,
+                valid_depth=valid,
+            )
         if pts.shape[0] < config.min_mask_depth_pixels:
             continue
-        o3d = points_to_object(pts, det.label, det.score,
-                               config.depth_percentile_lo, config.depth_percentile_hi)
+        o3d = points_to_object(
+            pts,
+            det.label,
+            det.score,
+            config.depth_percentile_lo,
+            config.depth_percentile_hi,
+        )
         if o3d is None:
             continue
         o3d.color = _mean_color(rgb, det.mask)  # primary color of the detected object
-        mask_file = _save_mask(det.mask, kf, det.label, mask_output_dir) if mask_output_dir else ""
-        out.append(DiscoveredObject(obj=o3d, observations=[
-            Observation(kf.timestamp_ns, mask_file, _bbox_from_mask(det.mask), kf.rgb_path,
-                        score=float(det.score), depth_valid_px=int(pts.shape[0]),
+        mask_file = (
+            _save_mask(det.mask, kf, det.label, mask_output_dir)
+            if mask_output_dir
+            else ""
+        )
+        out.append(
+            DiscoveredObject(
+                obj=o3d,
+                observations=[
+                    Observation(
+                        kf.timestamp_ns,
+                        mask_file,
+                        _bbox_from_mask(det.mask),
+                        kf.rgb_path,
+                        score=float(det.score),
+                        depth_valid_px=int(pts.shape[0]),
                         view_xyz=tuple(float(v) for v in o3d.centroid),
-                        keyframe=kf, mask=np.asarray(det.mask, dtype=bool))]))
+                        keyframe=kf,
+                        mask=np.asarray(det.mask, dtype=bool),
+                    )
+                ],
+            )
+        )
     return out
 
 
@@ -205,14 +251,21 @@ def detect_in_keyframes(
             continue
 
         detections = _segment_kf(segmenter, kf, rgb, prompts)
-        per_view.extend(_views_from_detections(detections, rgb, depth_m, kf, config,
-                                               mask_output_dir))
+        per_view.extend(
+            _views_from_detections(
+                detections, rgb, depth_m, kf, config, mask_output_dir
+            )
+        )
 
     return associate(per_view, config)
 
 
-def _fuse(items: List[DiscoveredObject], dist_m: float,
-          percentile_lo: float = 5.0, percentile_hi: float = 95.0) -> List[DiscoveredObject]:
+def _fuse(
+    items: List[DiscoveredObject],
+    dist_m: float,
+    percentile_lo: float = 5.0,
+    percentile_hi: float = 95.0,
+) -> List[DiscoveredObject]:
     """Greedy same-label fusion that preserves contributing observations.
 
     Operates on RAW per-view detections (each contributes its original score once),
@@ -247,7 +300,9 @@ def _fuse(items: List[DiscoveredObject], dist_m: float,
             wb = max(float(b.score), 1e-6)
             a.centroid = (a.centroid * wa + b.centroid * wb) / (wa + wb)
             a._fuse_w = wa + wb
-            a.bbox_min = np.minimum(a.bbox_min, b.bbox_min)  # union fallback (no points)
+            a.bbox_min = np.minimum(
+                a.bbox_min, b.bbox_min
+            )  # union fallback (no points)
             a.bbox_max = np.maximum(a.bbox_max, b.bbox_max)
             a.num_points += b.num_points
             a.score = max(a.score, b.score)
@@ -260,7 +315,8 @@ def _fuse(items: List[DiscoveredObject], dist_m: float,
         pool = getattr(f.obj, "_pool", [])
         if pool:
             reduced = points_to_object(
-                np.vstack(pool), f.obj.label, f.obj.score, percentile_lo, percentile_hi)
+                np.vstack(pool), f.obj.label, f.obj.score, percentile_lo, percentile_hi
+            )
             if reduced is not None:
                 f.obj.centroid = reduced.centroid
                 f.obj.bbox_min = reduced.bbox_min
@@ -276,7 +332,8 @@ def _save_mask(mask: np.ndarray, kf: ks.Keyframe, label: str, out_dir: str) -> s
     # (e.g. two chairs) don't collide on one filename and overwrite each other.
     x0, y0, x1, y1 = _bbox_from_mask(mask)
     path = os.path.join(
-        out_dir, f"sam3_{kf.timestamp_ns}_{safe}_{x0}-{y0}-{x1}-{y1}_mask.png")
+        out_dir, f"sam3_{kf.timestamp_ns}_{safe}_{x0}-{y0}-{x1}-{y1}_mask.png"
+    )
     try:
         import cv2
 
@@ -288,8 +345,9 @@ def _save_mask(mask: np.ndarray, kf: ks.Keyframe, label: str, out_dir: str) -> s
     return path
 
 
-def _in_frustum(centroid, kf, margin: float = 0.0,
-                max_depth_m: Optional[float] = None) -> bool:
+def _in_frustum(
+    centroid, kf, margin: float = 0.0, max_depth_m: Optional[float] = None
+) -> bool:
     """True if a world-frame point projects inside the keyframe's image (in front),
     and within ``max_depth_m`` of the camera if given.
 
@@ -298,7 +356,7 @@ def _in_frustum(centroid, kf, margin: float = 0.0,
     suppresses SAM3 there, missing nearer distinct instances. (Occlusion by closer
     geometry is NOT modelled — a wall between camera and object won't be detected.)
     """
-    T = kf.world_T_body @ kf.calib.body_T_sensor       # world_T_sensor
+    T = kf.world_T_body @ kf.calib.body_T_sensor  # world_T_sensor
     p = np.linalg.inv(T) @ np.array([centroid[0], centroid[1], centroid[2], 1.0])
     if p[2] <= 0.1:
         return False
@@ -306,11 +364,15 @@ def _in_frustum(centroid, kf, margin: float = 0.0,
         return False
     u = kf.calib.fx * p[0] / p[2] + kf.calib.cx
     v = kf.calib.fy * p[1] / p[2] + kf.calib.cy
-    return bool(-margin <= u < kf.calib.width + margin and
-                -margin <= v < kf.calib.height + margin)
+    return bool(
+        -margin <= u < kf.calib.width + margin
+        and -margin <= v < kf.calib.height + margin
+    )
 
 
-def _any_in_frustum(centroids: np.ndarray, kf, max_depth_m: Optional[float] = None) -> bool:
+def _any_in_frustum(
+    centroids: np.ndarray, kf, max_depth_m: Optional[float] = None
+) -> bool:
     """Vectorised ``any(_in_frustum(c, kf, max_depth_m=...) for c in centroids)``
     (same gates: in front by > 0.1 m, optional depth ceiling, inside the image)."""
     if centroids.size == 0:
@@ -327,14 +389,15 @@ def _any_in_frustum(centroids: np.ndarray, kf, max_depth_m: Optional[float] = No
     p, z = p[ok], z[ok]
     u = kf.calib.fx * p[:, 0] / z + kf.calib.cx
     v = kf.calib.fy * p[:, 1] / z + kf.calib.cy
-    return bool(np.any((u >= 0) & (u < kf.calib.width) & (v >= 0) & (v < kf.calib.height)))
+    return bool(
+        np.any((u >= 0) & (u < kf.calib.width) & (v >= 0) & (v < kf.calib.height))
+    )
 
 
 def _group_centroids(views: List[DiscoveredObject], config) -> np.ndarray:
     """Per-frame object centroids of the frustum loop: cluster membership (cheap,
     no point pooling) -> score-weighted member centroids, one row per object."""
-    from openset_query.association import (
-        cluster_indices, params_from_config)
+    from openset_query.association import cluster_indices, params_from_config
 
     groups = cluster_indices(views, params_from_config(config))
     out = np.empty((len(groups), 3))
@@ -345,10 +408,16 @@ def _group_centroids(views: List[DiscoveredObject], config) -> np.ndarray:
     return out
 
 
-def detect_frustum_aware(ranked, segmenter, prompts, config,
-                         max_frames: int = 20, patience: int = 3,
-                         mask_output_dir: Optional[str] = None,
-                         views_out: Optional[list] = None):
+def detect_frustum_aware(
+    ranked,
+    segmenter,
+    prompts,
+    config,
+    max_frames: int = 20,
+    patience: int = 3,
+    mask_output_dir: Optional[str] = None,
+    views_out: Optional[list] = None,
+):
     """Frustum-coverage early-stop detection.
 
     ``ranked`` is [(keyframe, score)] sorted by descending text-image similarity.
@@ -361,9 +430,12 @@ def detect_frustum_aware(ranked, segmenter, prompts, config,
     re-association with appearance embeddings.
     """
     import time as _time
+
     t_read = t_seg = t_reproj = 0.0
     n_skipped = 0
-    all_views: List[DiscoveredObject] = []  # raw per-view detections (fused fresh each frame)
+    all_views: List[
+        DiscoveredObject
+    ] = []  # raw per-view detections (fused fresh each frame)
     fused: List[DiscoveredObject] = []
     # Found objects' centroids. "cluster": cheap per-frame grouping (the full
     # pooled-point merge runs once, after the loop); "centroid": the legacy fusion.
@@ -389,7 +461,9 @@ def detect_frustum_aware(ranked, segmenter, prompts, config,
         dets = _segment_kf(segmenter, kf, rgb, prompts)
         t_seg += _time.perf_counter() - _t
         _t = _time.perf_counter()
-        per_view = _views_from_detections(dets, rgb, depth_m, kf, config, mask_output_dir)
+        per_view = _views_from_detections(
+            dets, rgb, depth_m, kf, config, mask_output_dir
+        )
         before = len(centroids)
         # Fuse the RAW accumulated views (not the already-fused set) so each
         # detection contributes its original score exactly once (correct weighting).
@@ -399,8 +473,9 @@ def detect_frustum_aware(ranked, segmenter, prompts, config,
                 centroids = _group_centroids(all_views, config)
             else:
                 fused = associate(all_views, config)
-                centroids = np.array([np.asarray(d.obj.centroid, dtype=np.float64)
-                                      for d in fused]).reshape(-1, 3)
+                centroids = np.array(
+                    [np.asarray(d.obj.centroid, dtype=np.float64) for d in fused]
+                ).reshape(-1, 3)
         t_reproj += _time.perf_counter() - _t
         processed += 1
         no_new = no_new + 1 if len(centroids) == before else 0
@@ -413,19 +488,28 @@ def detect_frustum_aware(ranked, segmenter, prompts, config,
     logger.info(
         "frustum-aware: %d frames processed, %d skipped -> %d objects | "
         "timings: read=%.2fs seg(SAM3)=%.2fs reproject=%.2fs",
-        processed, n_skipped, len(fused), t_read, t_seg, t_reproj)
+        processed,
+        n_skipped,
+        len(fused),
+        t_read,
+        t_seg,
+        t_reproj,
+    )
     if views_out is not None:
         views_out.extend(all_views)
     return fused
 
 
-def detect_batched(keyframes, segmenter, prompts, config, mask_output_dir=None, fixed_batch=None):
+def detect_batched(
+    keyframes, segmenter, prompts, config, mask_output_dir=None, fixed_batch=None
+):
     """Run SAM3 over all keyframes in a single batched forward, then reproject+fuse.
 
     Best for multi-instance queries: trades the frustum early-stop's adaptivity for
     one batched GPU forward over a fixed frame set.
     """
     import time as _time
+
     rgbs, depths, kfs = [], [], []
     t = _time.perf_counter()
     for kf in keyframes:
@@ -446,12 +530,20 @@ def detect_batched(keyframes, segmenter, prompts, config, mask_output_dir=None, 
     t = _time.perf_counter()
     per_view = []
     for kf, depth_m, rgb, dets in zip(kfs, depths, rgbs, per_image):
-        per_view.extend(_views_from_detections(dets, rgb, depth_m, kf, config, mask_output_dir))
+        per_view.extend(
+            _views_from_detections(dets, rgb, depth_m, kf, config, mask_output_dir)
+        )
     fused = associate(per_view, config)
     t_reproj = _time.perf_counter() - t
-    logger.info("batched: %d frames (1 forward) -> %d objects | timings: "
-                "read=%.2fs seg(SAM3)=%.2fs reproject=%.2fs",
-                len(kfs), len(fused), t_read, t_seg, t_reproj)
+    logger.info(
+        "batched: %d frames (1 forward) -> %d objects | timings: "
+        "read=%.2fs seg(SAM3)=%.2fs reproject=%.2fs",
+        len(kfs),
+        len(fused),
+        t_read,
+        t_seg,
+        t_reproj,
+    )
     return fused
 
 
@@ -481,8 +573,16 @@ def crop_embeddings(views: List[DiscoveredObject], ef, pad_frac: float = 0.08) -
         except Exception:
             continue
         px, py = int((x1 - x0) * pad_frac), int((y1 - y0) * pad_frac)
-        crops.append(img.crop((max(0, x0 - px), max(0, y0 - py),
-                               min(img.width, x1 + px), min(img.height, y1 + py))))
+        crops.append(
+            img.crop(
+                (
+                    max(0, x0 - px),
+                    max(0, y0 - py),
+                    min(img.width, x1 + px),
+                    min(img.height, y1 + py),
+                )
+            )
+        )
         idx.append(i)
     out = [None] * len(views)
     if crops:
@@ -492,9 +592,13 @@ def crop_embeddings(views: List[DiscoveredObject], ef, pad_frac: float = 0.08) -
     return out
 
 
-def attach_crop_evidence(discovered: List[DiscoveredObject], ef, prompt: str,
-                         control_prompts: Sequence[str],
-                         pad_frac: float = 0.08) -> int:
+def attach_crop_evidence(
+    discovered: List[DiscoveredObject],
+    ef,
+    prompt: str,
+    control_prompts: Sequence[str],
+    pad_frac: float = 0.08,
+) -> int:
     """Fill each observation's SigLIP2 target/control scores in place.
 
     For every observation, the detection's 2D bbox (padded by ``pad_frac`` of
@@ -528,9 +632,16 @@ def attach_crop_evidence(discovered: List[DiscoveredObject], ef, prompt: str,
                 continue
             pad_x = int((x1 - x0) * pad_frac)
             pad_y = int((y1 - y0) * pad_frac)
-            crops.append(img.crop((max(0, x0 - pad_x), max(0, y0 - pad_y),
-                                   min(img.width, x1 + pad_x),
-                                   min(img.height, y1 + pad_y))))
+            crops.append(
+                img.crop(
+                    (
+                        max(0, x0 - pad_x),
+                        max(0, y0 - pad_y),
+                        min(img.width, x1 + pad_x),
+                        min(img.height, y1 + pad_y),
+                    )
+                )
+            )
             targets.append(o)
 
     if not crops:
@@ -539,8 +650,7 @@ def attach_crop_evidence(discovered: List[DiscoveredObject], ef, prompt: str,
     for i, o in enumerate(targets):
         o.target_prompt = prompt
         o.target_score = float(sims[i, 0])
-        o.control_scores = {c: float(sims[i, 1 + j])
-                            for j, c in enumerate(texts[1:])}
+        o.control_scores = {c: float(sims[i, 1 + j]) for j, c in enumerate(texts[1:])}
     return len(targets)
 
 
@@ -563,15 +673,25 @@ def _existing_objects(db, G):
             c = r["c"]
             if c is None:
                 continue
-            out.append((r["sym"], np.array([c[0], c[1], c[2]], dtype=np.float64),
-                        r.get("cls") or r.get("name")))
+            out.append(
+                (
+                    r["sym"],
+                    np.array([c[0], c[1], c[2]], dtype=np.float64),
+                    r.get("cls") or r.get("name"),
+                )
+            )
     elif G is not None:
         import spark_dsg
 
         for node in G.get_layer(spark_dsg.DsgLayers.OBJECTS).nodes:
             a = node.attributes
-            out.append((node.id.str(True), np.asarray(a.position, dtype=np.float64),
-                        getattr(a, "name", None)))
+            out.append(
+                (
+                    node.id.str(True),
+                    np.asarray(a.position, dtype=np.float64),
+                    getattr(a, "name", None),
+                )
+            )
     return out
 
 
@@ -621,16 +741,32 @@ def _ensure_frame(writer, reader, kf: ks.Keyframe) -> int:
     same_store = _same_store(getattr(kf, "store_dir", None), writer.root)
     if same_store and kf.frame_id is not None and reader.frame(kf.frame_id) is not None:
         return kf.frame_id
-    sensor = (kf.sensor_id if same_store and kf.sensor_id is not None
-              and reader.calib(kf.sensor_id) else None)
+    sensor = (
+        kf.sensor_id
+        if same_store and kf.sensor_id is not None and reader.calib(kf.sensor_id)
+        else None
+    )
     if sensor is None:
         c = kf.calib
-        sensor = writer.add_sensor("sam3", c.width, c.height, c.fx, c.fy, c.cx, c.cy,
-                                   depth_scale=c.depth_scale, body_T_sensor=c.body_T_sensor)
+        sensor = writer.add_sensor(
+            "sam3",
+            c.width,
+            c.height,
+            c.fx,
+            c.fy,
+            c.cx,
+            c.cy,
+            depth_scale=c.depth_scale,
+            body_T_sensor=c.body_T_sensor,
+        )
     return writer.add_frame_ref(
-        sensor, kf.timestamp_ns, kind=FrameKind.OBSERVATION,
+        sensor,
+        kf.timestamp_ns,
+        kind=FrameKind.OBSERVATION,
         world_T_body_odom=kf.world_T_body,
-        rgb=kf.rgb_path or None, depth=kf.depth_path or None)
+        rgb=kf.rgb_path or None,
+        depth=kf.depth_path or None,
+    )
 
 
 def _same_store(store_dir, root) -> bool:
@@ -649,7 +785,9 @@ def _add_sam3_observation(writer, node, fid, mask, mask_path, **kw) -> int:
     from openset_query.store_writeback import add_sam3_observation
 
     if mask_path is not None or mask is None:
-        return add_sam3_observation(writer, node, fid, mask=mask, mask_path=mask_path, **kw)
+        return add_sam3_observation(
+            writer, node, fid, mask=mask, mask_path=mask_path, **kw
+        )
     import tempfile
 
     import cv2
@@ -660,7 +798,9 @@ def _add_sam3_observation(writer, node, fid, mask, mask_path, **kw) -> int:
         return add_sam3_observation(writer, node, fid, mask=mask, mask_path=png, **kw)
 
 
-def record_observations(writer, sym: str, observations, new_object: bool = False) -> None:
+def record_observations(
+    writer, sym: str, observations, new_object: bool = False
+) -> None:
     """Record ``observations`` of object ``sym`` in the image store.
 
     Each observation reuses its keyframe's existing frame row (by frame_id, else
@@ -683,9 +823,12 @@ def record_observations(writer, sym: str, observations, new_object: bool = False
         if new_object:
             writer.conn.execute(
                 "DELETE FROM observations WHERE robot_id = ? AND track_id = ?",
-                (writer.robot_id, track))
-        existing = {(ob.frame_id, ob.bbox2d): ob.obs_id
-                    for ob in reader.track_observations(writer.robot_id, track)}
+                (writer.robot_id, track),
+            )
+        existing = {
+            (ob.frame_id, ob.bbox2d): ob.obs_id
+            for ob in reader.track_observations(writer.robot_id, track)
+        }
         recorded = []  # (Observation, frame_id, bbox) of this call
         for o in observations:
             if o.keyframe is None:
@@ -693,15 +836,27 @@ def record_observations(writer, sym: str, observations, new_object: bool = False
             fid = _ensure_frame(writer, reader, o.keyframe)
             bbox = tuple(int(v) for v in o.bbox_2d)
             if (fid, bbox) not in existing:
-                mask_path = o.mask_file if o.mask_file and os.path.exists(o.mask_file) else None
+                mask_path = (
+                    o.mask_file if o.mask_file and os.path.exists(o.mask_file) else None
+                )
                 # the in-memory mask: RLE always, and the kept mask PNG unless a
                 # mask file from mask_output_dir is linked instead
                 mask = o.mask_array()
                 existing[(fid, bbox)] = _add_sam3_observation(
-                    writer, node, fid, mask, mask_path, timestamp_ns=o.timestamp_ns,
-                    bbox2d=bbox, score=float(o.score or 0.0), kept=True)
+                    writer,
+                    node,
+                    fid,
+                    mask,
+                    mask_path,
+                    timestamp_ns=o.timestamp_ns,
+                    bbox2d=bbox,
+                    score=float(o.score or 0.0),
+                    kept=True,
+                )
             recorded.append((o, fid, bbox))
-        by_id = {ob.obs_id: ob for ob in reader.track_observations(writer.robot_id, track)}
+        by_id = {
+            ob.obs_id: ob for ob in reader.track_observations(writer.robot_id, track)
+        }
         for o, fid, bbox in recorded:
             ob = by_id[existing[(fid, bbox)]]
             o.frame_id, o.obs_id, o.kept = ob.frame_id, ob.obs_id, ob.kept
@@ -743,8 +898,16 @@ def _make_object_attrs(disc: DiscoveredObject):
 # objects SAM3 *created*, flagged ``sam3_created=true``). server.clear_sam3 reads
 # this list to build the restore query — keep the two in lockstep.
 SAM3_PRESERVED_PROPS = (
-    "center", "pos_x", "pos_y", "pos_z", "name", "class",
-    "attr_type", "color_r", "color_g", "color_b",
+    "center",
+    "pos_x",
+    "pos_y",
+    "pos_z",
+    "name",
+    "class",
+    "attr_type",
+    "color_r",
+    "color_g",
+    "color_b",
     # Provenance: the dedup SET overwrites `source` with 'sam3_query'. Snapshot
     # it so clear RESTORES the base object's original provenance instead of
     # dropping the property (a base object ingested with source='hydra' used to
@@ -760,8 +923,10 @@ SAM3_PRESERVED_PROPS = (
 #: but once an :class:`AdmissionPolicy` (Milestone 2) can ``reject_object`` a
 #: prior, erasing that verdict would silently re-trust a refused object.
 SAM3_PRESERVED_ADMISSION_PROPS = (
-    _ADMISSION_STATUS, _ADMISSION_POLICY_VERSION,
-    _ADMISSION_OBSERVATIONS, _ADMISSION_REASON,
+    _ADMISSION_STATUS,
+    _ADMISSION_POLICY_VERSION,
+    _ADMISSION_OBSERVATIONS,
+    _ADMISSION_REASON,
 )
 
 #: Everything ``_preserve_originals_cypher`` snapshots and ``query_backends.reset``
@@ -815,7 +980,8 @@ def stamp_dedup_admission(db, sym: str, label: str = None) -> None:
         f"SET o.{ADMISSION_STATUS} = {dedup_admission_case('o')}, "
         f"o.{ADMISSION_POLICY_VERSION} = "
         f"coalesce(o.{ADMISSION_POLICY_VERSION}, $prior_policy)",
-        sym=sym, prior_policy=PRIOR_MAP_POLICY_VERSION,
+        sym=sym,
+        prior_policy=PRIOR_MAP_POLICY_VERSION,
     )
 
 
@@ -842,9 +1008,13 @@ def _store_obs_props(o: Observation) -> dict:
     props: dict = {"bbox_2d": [int(v) for v in o.bbox_2d]}
     if o.rgb_path:
         props["rgb_path"] = o.rgb_path
-    for k, v in (("obs_id", o.obs_id), ("frame_id", o.frame_id),
-                 ("depth_path", o.depth_path), ("mask_path", o.mask_path),
-                 ("kept", o.kept)):
+    for k, v in (
+        ("obs_id", o.obs_id),
+        ("frame_id", o.frame_id),
+        ("depth_path", o.depth_path),
+        ("mask_path", o.mask_path),
+        ("kept", o.kept),
+    ):
         if v is not None:
             props[k] = v
     return props
@@ -881,15 +1051,15 @@ def _obs_evidence_props(o: Observation) -> dict:
         props["depth_valid_px"] = int(o.depth_valid_px)
     if o.view_xyz is not None:
         props["view_x"], props["view_y"], props["view_z"] = (
-            float(v) for v in o.view_xyz)
+            float(v) for v in o.view_xyz
+        )
     if o.target_prompt is not None:
         props["target_prompt"] = o.target_prompt
     if o.target_score is not None:
         props["target_score"] = float(o.target_score)
     if o.control_scores:
         control_max = max(o.control_scores.values())
-        props["control_scores_json"] = json.dumps(o.control_scores,
-                                                  sort_keys=True)
+        props["control_scores_json"] = json.dumps(o.control_scores, sort_keys=True)
         props["control_max_score"] = float(control_max)
         if o.target_score is not None:
             props["margin"] = float(o.target_score) - float(control_max)
@@ -970,9 +1140,19 @@ def upsert_objects(
     result.setdefault("merged", [])
     try:
         touched = _upsert_objects_write(
-            discovered, G, db, config, writer,
-            existing, next_idx, touched, new_dicts, observations, obs_edges,
-            alloc=alloc, result=result,
+            discovered,
+            G,
+            db,
+            config,
+            writer,
+            existing,
+            next_idx,
+            touched,
+            new_dicts,
+            observations,
+            obs_edges,
+            alloc=alloc,
+            result=result,
         )
         alloc.finish()
     except Exception as exc:
@@ -999,9 +1179,19 @@ def upsert_objects(
 
 
 def _upsert_objects_write(
-    discovered, G, db, config, writer,
-    existing, next_idx, touched, new_dicts, observations, obs_edges,
-    alloc=None, result=None,
+    discovered,
+    G,
+    db,
+    config,
+    writer,
+    existing,
+    next_idx,
+    touched,
+    new_dicts,
+    observations,
+    obs_edges,
+    alloc=None,
+    result=None,
 ) -> List[str]:
     import spark_dsg
     from heracles import constants
@@ -1041,9 +1231,14 @@ def _upsert_objects_write(
                     "o.pos_x=$x, o.pos_y=$y, o.pos_z=$z, o.name=$name, o.class=$name, "
                     "o.source='sam3_query', o.attr_type='KhronosObjectAttributes', "
                     "o.color_r=$cr, o.color_g=$cg, o.color_b=$cb",
-                    sym=sym, x=float(centroid[0]), y=float(centroid[1]),
-                    z=float(centroid[2]), name=disc.obj.label,
-                    cr=int(col[0]), cg=int(col[1]), cb=int(col[2]),
+                    sym=sym,
+                    x=float(centroid[0]),
+                    y=float(centroid[1]),
+                    z=float(centroid[2]),
+                    name=disc.obj.label,
+                    cr=int(col[0]),
+                    cg=int(col[1]),
+                    cb=int(col[2]),
                 )
             logger.info("Updated existing object %s (%s)", sym, disc.obj.label)
             if result is not None:
@@ -1061,8 +1256,10 @@ def _upsert_objects_write(
             d["class"] = disc.obj.label
             d["name"] = disc.obj.label
             d["source"] = "sam3_query"  # provenance marker for viz color-coding
-            d["sam3_created"] = True    # SAM3 created this node → safe to delete on clear
-            d.update(_candidate_admission_props())  # Admission gate: written, not yet a fact
+            d["sam3_created"] = True  # SAM3 created this node → safe to delete on clear
+            d.update(
+                _candidate_admission_props()
+            )  # Admission gate: written, not yet a fact
             new_dicts.append(d)
             existing.append((sym, centroid, disc.obj.label))
             # Mirror in memory (skipped for DB-only build-time service).
@@ -1085,8 +1282,13 @@ def _upsert_objects_write(
             insert_nodes_to_db(db, constants.OBJECTS, new_dicts)
         if observations:
             insert_observations_to_db(db, observations)
-            insert_edges(db, constants.HAS_OBSERVATION, constants.OBJECTS,
-                         constants.OBSERVATIONS, obs_edges)
+            insert_edges(
+                db,
+                constants.HAS_OBSERVATION,
+                constants.OBJECTS,
+                constants.OBSERVATIONS,
+                obs_edges,
+            )
             _link_observation_provenance(db, depicts_pairs)
     else:
         logger.warning(
@@ -1152,15 +1354,20 @@ class _IndexAllocator:
 
     def finish(self) -> None:
         if self.db is not None and self.claimed:
-            self.db.execute("MATCH (o:Object {_alloc_token: $t}) REMOVE o._alloc_token",
-                            t=self.token)
+            self.db.execute(
+                "MATCH (o:Object {_alloc_token: $t}) REMOVE o._alloc_token",
+                t=self.token,
+            )
 
     def abort(self) -> None:
         if self.db is None or not self.claimed:
             return
         try:  # placeholders that never got their properties
-            self.db.execute("MATCH (o:Object {_alloc_token: $t}) WHERE o.class IS NULL "
-                            "DETACH DELETE o", t=self.token)
+            self.db.execute(
+                "MATCH (o:Object {_alloc_token: $t}) WHERE o.class IS NULL "
+                "DETACH DELETE o",
+                t=self.token,
+            )
             self.finish()
         except Exception:
             logger.exception("could not clean up claimed object placeholders")
@@ -1200,7 +1407,9 @@ def frame_index_select(
     """
     if store is None:
         raise ValueError("frame_index_select needs the image store (store=...)")
-    rows = frame_index.query_by_text(prompt, k=k, radius_m=radius_m, center_xyz=center_xyz)
+    rows = frame_index.query_by_text(
+        prompt, k=k, radius_m=radius_m, center_xyz=center_xyz
+    )
     out: List[tuple] = []
     by_path = {str(f.rgb_path): f for f in store.frames() if f.rgb_path is not None}
     calib_cache: dict = {}
@@ -1269,7 +1478,7 @@ async def _upsert_via_graph_writer(
                 best = d
                 match_sym = sym
 
-        dims = (disc.obj.bbox_max - disc.obj.bbox_min)
+        dims = disc.obj.bbox_max - disc.obj.bbox_min
         bcen = (disc.obj.bbox_min + disc.obj.bbox_max) / 2.0
 
         if match_sym is not None:
@@ -1285,8 +1494,11 @@ async def _upsert_via_graph_writer(
                 "SET o.center = point({x:$x, y:$y, z:$z}), "
                 "o.pos_x=$x, o.pos_y=$y, o.pos_z=$z, o.name=$name, o.class=$name, "
                 "o.source='sam3_query'",
-                sym=sym, x=float(centroid[0]), y=float(centroid[1]),
-                z=float(centroid[2]), name=disc.obj.label,
+                sym=sym,
+                x=float(centroid[0]),
+                y=float(centroid[1]),
+                z=float(centroid[2]),
+                name=disc.obj.label,
             )
             logger.info("Updated existing object %s (%s)", sym, disc.obj.label)
         else:
@@ -1304,28 +1516,37 @@ async def _upsert_via_graph_writer(
             )
             existing.append((sym, centroid, disc.obj.label))
             # Admission gate: a fresh detector object is a candidate, never a planning fact.
-            from openset_query.evidence.admission import (
-                ADMISSION_STATUS, CANDIDATE)
+            from openset_query.evidence.admission import ADMISSION_STATUS, CANDIDATE
 
             db.execute(
                 f"MATCH (o:{constants.OBJECTS} {{nodeSymbol: $sym}}) "
                 f"SET o.sam3_created = true, o.{ADMISSION_STATUS} = $adm",
-                sym=sym, adm=CANDIDATE)
-            logger.info("Created new object %s (%s) via GraphWriter", sym, disc.obj.label)
+                sym=sym,
+                adm=CANDIDATE,
+            )
+            logger.info(
+                "Created new object %s (%s) via GraphWriter", sym, disc.obj.label
+            )
 
         # Follow-up: color + attr_type + the canonical bbox the viewer
         # reads (bbox_center/bbox_dim points). add_object models none of these.
-        record_observations(sw, sym, disc.observations,
-                            new_object=match_sym is None)
+        record_observations(sw, sym, disc.observations, new_object=match_sym is None)
         db.execute(
             f"MATCH (o:{constants.OBJECTS} {{nodeSymbol: $sym}}) "
             "SET o.color_r=$cr, o.color_g=$cg, o.color_b=$cb, "
             "o.attr_type='KhronosObjectAttributes', "
             "o.bbox_center=point({x:$bx, y:$by, z:$bz}), "
             "o.bbox_dim=point({x:$dx, y:$dy, z:$dz})",
-            sym=sym, cr=int(col[0]), cg=int(col[1]), cb=int(col[2]),
-            bx=float(bcen[0]), by=float(bcen[1]), bz=float(bcen[2]),
-            dx=float(dims[0]), dy=float(dims[1]), dz=float(dims[2]),
+            sym=sym,
+            cr=int(col[0]),
+            cg=int(col[1]),
+            cb=int(col[2]),
+            bx=float(bcen[0]),
+            by=float(bcen[1]),
+            bz=float(bcen[2]),
+            dx=float(dims[0]),
+            dy=float(dims[1]),
+            dz=float(dims[2]),
         )
 
         touched.append(sym)
@@ -1337,8 +1558,13 @@ async def _upsert_via_graph_writer(
 
     if observations:
         insert_observations_to_db(db, observations)
-        insert_edges(db, constants.HAS_OBSERVATION, constants.OBJECTS,
-                     constants.OBSERVATIONS, obs_edges)
+        insert_edges(
+            db,
+            constants.HAS_OBSERVATION,
+            constants.OBJECTS,
+            constants.OBSERVATIONS,
+            obs_edges,
+        )
         _link_observation_provenance(db, depicts_pairs)
     return touched
 
@@ -1373,11 +1599,19 @@ async def discover_and_upsert_indexed(
     from hydra_python.image_store import ImageStore
 
     path = image_store[0] if isinstance(image_store, (list, tuple)) else image_store
-    store = ImageStore.open(*(image_store if isinstance(image_store, (list, tuple)) else [path]))
+    store = ImageStore.open(
+        *(image_store if isinstance(image_store, (list, tuple)) else [path])
+    )
     try:
-        ranked = frame_index_select(frame_index, prompt, k=k,
-                                    center_xyz=center_xyz, radius_m=radius_m,
-                                    store=store, pose_lookup=pose_lookup)
+        ranked = frame_index_select(
+            frame_index,
+            prompt,
+            k=k,
+            center_xyz=center_xyz,
+            radius_m=radius_m,
+            store=store,
+            pose_lookup=pose_lookup,
+        )
     finally:
         store.close()
     logger.info("frame-index selected %d keyframes for %r", len(ranked), prompt)
@@ -1385,23 +1619,40 @@ async def discover_and_upsert_indexed(
         return []
 
     if mode == "batched":
-        discovered = detect_batched([kf for kf, _ in ranked], segmenter, [prompt],
-                                    config, mask_output_dir=mask_output_dir)
+        discovered = detect_batched(
+            [kf for kf, _ in ranked],
+            segmenter,
+            [prompt],
+            config,
+            mask_output_dir=mask_output_dir,
+        )
     elif mode == "topk":
-        discovered = detect_in_keyframes([kf for kf, _ in ranked], segmenter, [prompt],
-                                         config, mask_output_dir=mask_output_dir)
+        discovered = detect_in_keyframes(
+            [kf for kf, _ in ranked],
+            segmenter,
+            [prompt],
+            config,
+            mask_output_dir=mask_output_dir,
+        )
     else:  # frustum-aware early stop (default)
-        discovered = detect_frustum_aware(ranked, segmenter, [prompt], config,
-                                          max_frames=max_frames, patience=patience,
-                                          mask_output_dir=mask_output_dir)
+        discovered = detect_frustum_aware(
+            ranked,
+            segmenter,
+            [prompt],
+            config,
+            max_frames=max_frames,
+            patience=patience,
+            mask_output_dir=mask_output_dir,
+        )
     # tag each discovered object with a contributing keyframe for place provenance
     by_ts = {kf.timestamp_ns: kf for kf, _ in ranked}
     for disc in discovered:
         if disc.observations:
             disc._src_kf = by_ts.get(disc.observations[0].timestamp_ns)
     logger.info("Fused into %d candidate objects", len(discovered))
-    return await upsert_via_graph_writer(discovered, writer, config=config,
-                                         image_store=image_store)
+    return await upsert_via_graph_writer(
+        discovered, writer, config=config, image_store=image_store
+    )
 
 
 def discover_and_upsert(
@@ -1431,7 +1682,11 @@ def discover_and_upsert(
     # Neo4j is the source of truth: when a db is provided, get keyframes by querying
     # Agent rgb_path/depth_path + CameraCalib from the DB (db_to_spark_dsg does not
     # reconstruct AGENTS). Without a db, read the image store and pose from the DSG.
-    store_dirs = [image_store] if isinstance(image_store, (str, os.PathLike)) else list(image_store or [])
+    store_dirs = (
+        [image_store]
+        if isinstance(image_store, (str, os.PathLike))
+        else list(image_store or [])
+    )
     if db is not None:
         keyframes = ks.load_keyframes_from_db(db, near_position, radius_m)
     else:
@@ -1447,13 +1702,18 @@ def discover_and_upsert(
 
     if embed_filter and prompts and keyframes:
         from openset_query.embedding_filter import EmbeddingFilter
-        cache = (ks.embed_cache_path(store_dirs[0], embed_model) if store_dirs else None)
+
+        cache = ks.embed_cache_path(store_dirs[0], embed_model) if store_dirs else None
         ef = EmbeddingFilter(model=embed_model, device=config.device, cache_path=cache)
-        keyframes = ef.select(keyframes, list(prompts),
-                              top_k=embed_top_k, threshold=embed_threshold)
-        logger.info("embed-filter (%s) selected %d keyframes", embed_model, len(keyframes))
+        keyframes = ef.select(
+            keyframes, list(prompts), top_k=embed_top_k, threshold=embed_threshold
+        )
+        logger.info(
+            "embed-filter (%s) selected %d keyframes", embed_model, len(keyframes)
+        )
     elif max_keyframes and len(keyframes) > max_keyframes:
         import numpy as _np
+
         idx = _np.linspace(0, len(keyframes) - 1, max_keyframes).astype(int)
         keyframes = [keyframes[i] for i in idx]
         logger.info("Sampled %d of the available keyframes", len(keyframes))
@@ -1462,5 +1722,4 @@ def discover_and_upsert(
         keyframes, segmenter, prompts, config, mask_output_dir=mask_output_dir
     )
     logger.info("Fused into %d candidate objects", len(discovered))
-    return upsert_objects(discovered, G, db=db, config=config,
-                          image_store=image_store)
+    return upsert_objects(discovered, G, db=db, config=config, image_store=image_store)
