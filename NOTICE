@@ -1,0 +1,13 @@
+openset_query
+Copyright 2026 Harel Biggie
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party software and models (not included in this repository):
+
+- SAM 3 (Segment Anything Model 3) is Meta's, released under the SAM License.
+  It is installed by setup_env.sh from a fork with compatibility fixes
+  (https://github.com/harelb/sam3) and is not vendored here.
+- Model weights are not distributed with this repository. They are fetched from
+  the Hugging Face Hub under their own licenses: facebook/sam3 (gated, SAM
+  License) and google/siglip2-so400m-patch16-naflex (Apache-2.0).

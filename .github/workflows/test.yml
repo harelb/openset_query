@@ -1,0 +1,46 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # Hydra develop: hydra_python.image_store (pure python) is all the tests need
+  HYDRA_REF: 2ae75e8938935617fb1ce341089a4e4cea25efa7
+
+jobs:
+  unit:
+    # CPU-only pure tests; model, Neo4j and ADT4-workspace (heracles, spark_dsg)
+    # tests skip
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch hydra_python.image_store
+        run: |
+          git init -q hydra
+          git -C hydra remote add origin https://github.com/MIT-SPARK/Hydra.git
+          git -C hydra fetch -q --depth 1 origin "$HYDRA_REF"
+          git -C hydra checkout -q FETCH_HEAD -- hydra/python/src
+          echo "PYTHONPATH=$PWD/hydra/hydra/python/src" >> "$GITHUB_ENV"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "numpy<2" pillow opencv-python-headless scipy safetensors imageio pytest
+          pip install --no-deps -e .
+      - name: Unit tests
+        run: python -m pytest -q -rs
+
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff==0.12.12
+      - run: ruff check .
+      - run: ruff format --check .
