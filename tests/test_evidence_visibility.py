@@ -220,6 +220,8 @@ def test_refresh_drops_stale_views_first():
 
 def test_labels_match_heracles_constants():
     heracles_constants = pytest.importorskip("heracles.constants")
+    if not hasattr(heracles_constants, "VIEWS"):
+        pytest.skip("this heracles has no visibility labels (optional)")
     assert visibility.VIEWS == heracles_constants.VIEWS
     assert visibility.COVERED == heracles_constants.COVERED
     assert set(visibility.FRAME_LABELS) == {

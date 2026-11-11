@@ -476,9 +476,11 @@ def test_upsert_via_graph_writer_new_and_dedup(monkeypatch):
     import asyncio
     import heracles.graph_interface as gi
 
+    from openset_query import heracles_compat as hc
+
     obs_calls, edge_calls = [], []
     monkeypatch.setattr(
-        gi, "insert_observations_to_db", lambda db, obs: obs_calls.append(obs)
+        hc, "insert_observations", lambda db, obs: obs_calls.append(obs)
     )
     monkeypatch.setattr(
         gi, "insert_edges", lambda db, *a, **k: edge_calls.append((a, k))

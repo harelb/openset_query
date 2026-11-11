@@ -1044,7 +1044,7 @@ def _obs_evidence_props(o: Observation) -> dict:
     """The persistable admission evidence terms of one observation (raw + derived).
 
     Kept in lockstep with ``evidence.admission_policy._EVIDENCE_QUERY`` and
-    ``heracles.graph_interface.insert_observations_to_db`` (drift-guard in
+    ``heracles_compat.INSERT_OBSERVATIONS`` (drift-guard in
     tests/test_admission_policy.py)."""
     props: dict = {}
     if o.depth_valid_px is not None:
@@ -1077,26 +1077,6 @@ def _depicts_pair(sym: str, o: Observation):
     from openset_query.perception.frame_index import _frame_node_symbol
 
     return (_frame_node_symbol(o.timestamp_ns, o.rgb_path), sym)
-
-
-def _link_observation_provenance(db, depicts_pairs) -> None:
-    """Best-effort: OBSERVED_IN (obs -> source frame, timestamp join) and
-    DEPICTS (TrajectoryFrame -> Object) edges after an upsert batch."""
-    from heracles.graph_interface import (
-        insert_frame_edges,
-        link_observations_to_frames,
-    )
-
-    try:
-        link_observations_to_frames(db)
-    except Exception:
-        logger.exception("OBSERVED_IN provenance linking failed (non-fatal)")
-    try:
-        pairs = [p for p in depicts_pairs if p is not None]
-        if pairs:
-            insert_frame_edges(db, [], pairs)
-    except Exception:
-        logger.exception("DEPICTS provenance linking failed (non-fatal)")
 
 
 def upsert_objects(
@@ -1197,9 +1177,13 @@ def _upsert_objects_write(
     from heracles import constants
     from heracles.graph_interface import (
         insert_nodes_to_db,
-        insert_observations_to_db,
         insert_edges,
         node_to_dict,
+    )
+
+    from openset_query.heracles_compat import (
+        insert_observations,
+        link_observation_provenance,
     )
 
     depicts_pairs = []
@@ -1281,7 +1265,7 @@ def _upsert_objects_write(
         if new_dicts:
             insert_nodes_to_db(db, constants.OBJECTS, new_dicts)
         if observations:
-            insert_observations_to_db(db, observations)
+            insert_observations(db, observations)
             insert_edges(
                 db,
                 constants.HAS_OBSERVATION,
@@ -1289,7 +1273,7 @@ def _upsert_objects_write(
                 constants.OBSERVATIONS,
                 obs_edges,
             )
-            _link_observation_provenance(db, depicts_pairs)
+            link_observation_provenance(db, depicts_pairs)
     else:
         logger.warning(
             "No db provided: objects added only in-memory. Neo4j is the source of "
@@ -1457,7 +1441,12 @@ async def _upsert_via_graph_writer(
     connection (``writer._db``). DB remains the source of truth.
     """
     from heracles import constants
-    from heracles.graph_interface import insert_observations_to_db, insert_edges
+    from heracles.graph_interface import insert_edges
+
+    from openset_query.heracles_compat import (
+        insert_observations,
+        link_observation_provenance,
+    )
 
     config = config or Sam3FrontendConfig()
     db = writer._db
@@ -1557,7 +1546,7 @@ async def _upsert_via_graph_writer(
             depicts_pairs.append(_depicts_pair(sym, o))
 
     if observations:
-        insert_observations_to_db(db, observations)
+        insert_observations(db, observations)
         insert_edges(
             db,
             constants.HAS_OBSERVATION,
@@ -1565,7 +1554,7 @@ async def _upsert_via_graph_writer(
             constants.OBSERVATIONS,
             obs_edges,
         )
-        _link_observation_provenance(db, depicts_pairs)
+        link_observation_provenance(db, depicts_pairs)
     return touched
 
 

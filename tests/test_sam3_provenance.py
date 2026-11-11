@@ -99,17 +99,20 @@ class _FakeWriter:
 @pytest.mark.adt4
 def test_upsert_via_graph_writer_persists_scores_and_links(monkeypatch):
     import heracles.graph_interface as gi
+
+    from openset_query import heracles_compat as hc
     from openset_query.perception.frame_index import _frame_node_symbol
 
     obs_calls, frame_edge_calls, link_calls = [], [], []
     monkeypatch.setattr(
-        gi, "insert_observations_to_db", lambda db, obs: obs_calls.append(obs)
+        hc, "insert_observations", lambda db, obs: obs_calls.append(obs)
     )
     monkeypatch.setattr(gi, "insert_edges", lambda db, *a, **k: None)
     monkeypatch.setattr(
         gi,
         "insert_frame_edges",
         lambda db, place_pairs, obj_pairs: frame_edge_calls.append(obj_pairs),
+        raising=False,
     )
     monkeypatch.setattr(
         gi, "link_observations_to_frames", lambda db: link_calls.append(db) or 0

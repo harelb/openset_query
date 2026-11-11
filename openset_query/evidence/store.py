@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass, field
 
 from .assertions import Assertion, _new_id
@@ -45,6 +46,8 @@ from .types import (
     Polarity,
     dumps_record,
 )
+
+logger = logging.getLogger("openset_query.evidence.store")
 
 # Node/edge names, kept in lockstep with heracles.constants (drift-guard test
 # in tests/test_evidence_store.py) so this module stays importable without
@@ -183,9 +186,16 @@ class EvidenceStore:
 
     def ensure_schema(self) -> None:
         """Create the epistemic constraints/indexes (idempotent; heracles owns
-        the schema — lazy import keeps this module stdlib-only)."""
-        from heracles.graph_interface import create_epistemic_indexes
-
+        the schema — lazy import keeps this module stdlib-only). Skipped, with a
+        log line, when heracles has no ``create_epistemic_indexes``: the indexes
+        only speed up the queries."""
+        try:
+            from heracles.graph_interface import create_epistemic_indexes
+        except ImportError:
+            logger.info(
+                "heracles has no create_epistemic_indexes: evidence store indexes off"
+            )
+            return
         create_epistemic_indexes(self.db)
 
     # -- search episodes ---------------------------------------------------

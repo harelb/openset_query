@@ -22,6 +22,14 @@ if not _NEO4J_ENV_URI:
         allow_module_level=True,
     )
 
+if not hasattr(
+    pytest.importorskip("heracles.graph_interface"), "insert_trajectory_frames_to_db"
+):
+    pytest.skip(
+        "Skipping: this heracles has no TrajectoryFrame support (optional feature).",
+        allow_module_level=True,
+    )
+
 from heracles.graph_interface import (  # noqa: E402
     initialize_db,
     insert_edges,

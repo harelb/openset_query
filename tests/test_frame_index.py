@@ -30,6 +30,21 @@ if not _TESTCONTAINERS_AVAILABLE and not _NEO4J_ENV_URI:
         allow_module_level=True,
     )
 
+_gi = pytest.importorskip("heracles.graph_interface")
+if not all(
+    hasattr(_gi, name)
+    for name in (
+        "create_vector_indexes",
+        "insert_trajectory_frames_to_db",
+        "insert_frame_edges",
+        "query_similar_nodes",
+    )
+):
+    pytest.skip(
+        "Skipping: this heracles has no TrajectoryFrame support (optional feature).",
+        allow_module_level=True,
+    )
+
 # ---------------------------------------------------------------------------
 # Imports (only reached when a Neo4j instance is available)
 # ---------------------------------------------------------------------------

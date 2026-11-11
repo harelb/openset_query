@@ -163,10 +163,12 @@ class TrajectoryFrameIndex:
 
     def _ingest_raw(self, raw_frames: list[dict], place_attribution: bool) -> int:
         """Embed ``raw_frames`` (dicts with path/timestamp_ns/pose) and write them."""
-        from heracles.graph_interface import (
-            insert_frame_edges,
-            insert_trajectory_frames_to_db,
+        from openset_query.heracles_compat import require
+
+        insert_trajectory_frames_to_db = require(
+            "insert_trajectory_frames_to_db", "TrajectoryFrame ingest"
         )
+        insert_frame_edges = require("insert_frame_edges", "TrajectoryFrame ingest")
 
         # --- Assign nodeSymbols ---
         for rf in raw_frames:
@@ -393,12 +395,15 @@ class TrajectoryFrameIndex:
         center_xyz: Optional[Sequence[float]],
     ) -> list[dict]:
         """Dispatch to vector-index or spatial+cosine depending on filters."""
-        from heracles.graph_interface import query_similar_nodes
-
         use_spatial = radius_m is not None and center_xyz is not None
 
         if not use_spatial:
             # Fast path: use the pre-built vector index
+            from openset_query.heracles_compat import require
+
+            query_similar_nodes = require(
+                "query_similar_nodes", "TrajectoryFrame vector search"
+            )
             pairs = query_similar_nodes(self._db, "TrajectoryFrame", query_vec, k=k)
             if not pairs:
                 return []

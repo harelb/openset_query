@@ -136,7 +136,9 @@ def main(argv=None):
         "--neo4j-user", default=os.getenv("HERACLES_NEO4J_USERNAME", "neo4j")
     )
     p.add_argument(
-        "--neo4j-password", default=os.getenv("HERACLES_NEO4J_PASSWORD", "testpass")
+        "--neo4j-password",
+        default=os.getenv("HERACLES_NEO4J_PASSWORD"),
+        help="default: $HERACLES_NEO4J_PASSWORD (required with --neo4j)",
     )
     p.add_argument("--include-subkeyframes", action="store_true")
     p.add_argument("--live-store-root", default=None)
@@ -163,6 +165,9 @@ def main(argv=None):
     db = None
     if args.neo4j:
         from heracles.query_interface import Neo4jWrapper
+
+        if not args.neo4j_password:
+            p.error("--neo4j needs --neo4j-password or HERACLES_NEO4J_PASSWORD")
 
         db = Neo4jWrapper(
             args.neo4j, (args.neo4j_user, args.neo4j_password), atomic_queries=True

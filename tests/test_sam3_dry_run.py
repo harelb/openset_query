@@ -308,9 +308,9 @@ def _wipe(db):
 
 
 def _versions(db):
-    from heracles.graph_interface import get_map_version, read_version
+    from openset_query.heracles_compat import read_map_version, read_state_version
 
-    return read_version(db), get_map_version(db)
+    return read_state_version(db), read_map_version(db)
 
 
 def _engine(tmp_path):
@@ -364,11 +364,10 @@ def test_dry_run_writes_nothing_then_commit_writes_admits_and_bumps(db, tmp_path
         and row["st"] == "admitted"
         and row["pv"] == qs.HUMAN_CONSOLE_POLICY
     )
-    assert (
-        (out["state_version"], out["map_version"])
-        == (v0[0] + 1, v0[1] + 1)
-        == _versions(db)
-    )
+    assert (out["state_version"], out["map_version"]) == _versions(db)
+    assert out["map_version"] == v0[1] + 1
+    if v0[0] is not None:
+        assert out["state_version"] == v0[0] + 1
     n_obs, _, _ = db.execute(
         "MATCH (:Object {nodeSymbol: $s})-[:HAS_OBSERVATION]->(x) RETURN count(x) AS n",
         s=sym,
@@ -392,7 +391,13 @@ def test_dry_run_writes_nothing_then_commit_writes_admits_and_bumps(db, tmp_path
 
     again = eng.commit(r["pending_id"], 0)
     assert again["already_committed"] and again["symbol"] == sym
-    assert _versions(db) == (v0[0] + 1, v0[1] + 1)
+    # the map version always moves; the console's _State counter only when the
+    # database has one (heracles master only bumps an existing _State)
+    v1 = _versions(db)
+    assert v1[1] == v0[1] + 1
+    assert v1[0] == (None if v0[0] is None else v0[0] + 1) or (
+        v0[0] is None and v1[0] == 1
+    )
 
     # the same object found again: previewed and committed as a merge
     r2 = eng.query(LABEL, mode="topk", dry_run=True)

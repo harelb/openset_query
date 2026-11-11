@@ -1099,7 +1099,7 @@ class QueryEngine:
         object (dedup/merge as a normal query), admitted by the human, then both map
         version counters. Committing the same candidate again returns the first
         result (``already_committed``)."""
-        from heracles.graph_interface import notify_map_change
+        from openset_query.heracles_compat import notify_map_change
 
         from openset_query.evidence.admission import ADMITTED, admit_object
         from openset_query import object_discovery as od
@@ -1594,11 +1594,11 @@ def main(argv=None):
     logging.basicConfig(
         level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
     )
-    uri = os.getenv("HERACLES_NEO4J_URI", "bolt://localhost:7690")
-    auth = (
-        os.getenv("HERACLES_NEO4J_USERNAME", "neo4j"),
-        os.getenv("HERACLES_NEO4J_PASSWORD", "testpass"),
-    )
+    from openset_query import heracles_compat
+
+    uri, auth = heracles_compat.neo4j_settings()
+    heracles_compat.log_optional_features()
+    logger.info("map version bumps via %s", heracles_compat.map_change_backend())
     config = Sam3FrontendConfig(
         device=args.device,
         conf_threshold=args.conf,

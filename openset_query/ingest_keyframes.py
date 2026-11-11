@@ -6,7 +6,7 @@ from its anchor node (``--dsg``; odometry when absent) and runs
 for `query_by_text`.
 
 Run (SAM3 env):
-    HF_HUB_OFFLINE=1 HERACLES_NEO4J_URI=bolt://localhost:7690 \
+    HF_HUB_OFFLINE=1 HERACLES_NEO4J_URI=bolt://localhost:7687 \
     HERACLES_NEO4J_USERNAME=neo4j HERACLES_NEO4J_PASSWORD=<password> \
     $ADT4_ENV/sam3/bin/python \
         -m openset_query.ingest_keyframes --image-store <run>/image_store [--dsg <run>/backend/dsg.json]
@@ -15,7 +15,6 @@ Run (SAM3 env):
 from __future__ import annotations
 
 import argparse
-import os
 
 import numpy as np
 
@@ -74,7 +73,9 @@ def main(argv=None):
 
     from openset_query.perception.embedders import SigLip2Embedder
     from openset_query.perception.frame_index import TrajectoryFrameIndex
-    from heracles.graph_interface import create_vector_indexes
+    from openset_query.heracles_compat import require
+
+    create_vector_indexes = require("create_vector_indexes", "ingest_keyframes")
     from heracles.query_interface import Neo4jWrapper
 
     from hydra_python.image_store import ImageStore, load_dsg
@@ -82,11 +83,9 @@ def main(argv=None):
     store = ImageStore.open(*args.image_store)
     pose_lookup = load_dsg(args.dsg) if args.dsg else None
 
-    uri = os.getenv("HERACLES_NEO4J_URI", "bolt://localhost:7690")
-    auth = (
-        os.getenv("HERACLES_NEO4J_USERNAME", "neo4j"),
-        os.getenv("HERACLES_NEO4J_PASSWORD", "testpass"),
-    )
+    from openset_query.heracles_compat import neo4j_settings
+
+    uri, auth = neo4j_settings()
     db = Neo4jWrapper(uri, auth, atomic_queries=True)
     db.connect()
     embedder = SigLip2Embedder(device="cuda")

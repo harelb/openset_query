@@ -293,6 +293,8 @@ def test_import_jsonl_roundtrips_lines(tmp_path):
 
 def test_labels_match_heracles_constants():
     heracles_constants = pytest.importorskip("heracles.constants")
+    if not hasattr(heracles_constants, "SEARCH_EPISODES"):
+        pytest.skip("this heracles has no evidence-store labels (optional)")
     assert store_mod.OBJECTS == heracles_constants.OBJECTS
     assert store_mod.OBSERVATIONS == heracles_constants.OBSERVATIONS
     assert store_mod.SEARCH_EPISODES == heracles_constants.SEARCH_EPISODES
