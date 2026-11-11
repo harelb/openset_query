@@ -1,6 +1,6 @@
 """Locate and load the RGB-D keyframes of a run from the Hydra image store.
 
-All images live in the SQLite image store (``hydra_image_store``): one ``frames`` row
+All images live in the SQLite image store (``hydra_python.image_store``): one ``frames`` row
 per keyframe (agent), sub-keyframe or observation frame, with the pose composed from
 its anchor node. Two sources feed :class:`Keyframe`:
 
@@ -310,7 +310,7 @@ def resolve_store_dirs(root) -> List[str]:
 def rgb_by_timestamp(store_dirs, kinds=None) -> dict:
     """``{timestamp_ns: rgb_path}`` over the store frames that have an RGB file
     (all kinds by default; a keyframe wins over an observation frame on a tie)."""
-    from hydra_image_store import ImageStore
+    from hydra_python.image_store import ImageStore
 
     if not store_dirs:
         return {}

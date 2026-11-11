@@ -62,7 +62,7 @@ def main(argv=None):
     from heracles.graph_interface import create_vector_indexes
     from heracles.query_interface import Neo4jWrapper
 
-    from hydra_image_store import ImageStore, load_dsg
+    from hydra_python.image_store import ImageStore, load_dsg
 
     store = ImageStore.open(*args.image_store)
     pose_lookup = load_dsg(args.dsg) if args.dsg else None

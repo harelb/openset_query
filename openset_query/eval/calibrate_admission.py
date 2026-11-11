@@ -88,11 +88,11 @@ def load_archive_keyframes(archive_dir: str):
                  os.path.join(archive_dir, "backend", "dsg.json"),
                  os.path.join(archive_dir, "dsg.json")):
         if os.path.exists(cand):
-            from hydra_image_store import load_dsg
+            from hydra_python.image_store import load_dsg
 
             pose_lookup = load_dsg(cand)
             break
-    from hydra_image_store import ImageStore
+    from hydra_python.image_store import ImageStore
 
     store = ImageStore.open(*store_dirs)
     try:

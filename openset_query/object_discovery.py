@@ -77,7 +77,7 @@ class Observation:
         if self.mask is not None:
             return self.mask
         if self.mask_rle and self.mask_shape:
-            from hydra_image_store import rle_decode
+            from hydra_python.image_store import rle_decode
 
             return rle_decode(self.mask_rle, tuple(self.mask_shape))
         return None
@@ -86,7 +86,7 @@ class Observation:
         """Replace the in-memory mask by its RLE (a few hundred bytes)."""
         if self.mask is None:
             return
-        from hydra_image_store import rle_encode
+        from hydra_python.image_store import rle_encode
 
         self.mask_shape = tuple(int(v) for v in self.mask.shape[:2])
         self.mask_rle = json.dumps(rle_encode(self.mask), separators=(",", ":"))
@@ -596,7 +596,7 @@ def open_sam3_writer(image_store, robot_id: int = 0):
     """Writer onto the image store that records SAM3 observations (None if no store)."""
     if not image_store:
         return None
-    from hydra_image_store import ImageStore
+    from hydra_python.image_store import ImageStore
 
     path = image_store[0] if isinstance(image_store, (list, tuple)) else image_store
     return ImageStore.open_writer(path, robot_id=robot_id)
@@ -614,7 +614,7 @@ def _node_value(sym: str) -> Optional[int]:
 
 def _ensure_frame(writer, reader, kf: ks.Keyframe) -> int:
     """frame_id of ``kf`` in the writer's store (reusing the existing frame row)."""
-    from hydra_image_store import FrameKind
+    from hydra_python.image_store import FrameKind
 
     # A keyframe from another store (e.g. a live mirror) carries ids of THAT store:
     # never reuse them here, add the frame by reference instead.
@@ -646,7 +646,7 @@ def _add_sam3_observation(writer, node, fid, mask, mask_path, **kw) -> int:
     """SAM3 observation of ``node`` in frame ``fid`` with ``mask`` stored as RLE and a
     mask PNG: ``mask_path`` when given, else ``mask`` written to a PNG the store copies
     to ``masks/r<robot>/<obs_id>.png``."""
-    from hydra_image_store_adt4.sam3 import add_sam3_observation
+    from openset_query.store_writeback import add_sam3_observation
 
     if mask_path is not None or mask is None:
         return add_sam3_observation(writer, node, fid, mask=mask, mask_path=mask_path, **kw)
@@ -672,7 +672,7 @@ def record_observations(writer, sym: str, observations, new_object: bool = False
     """
     if writer is None:
         return
-    from hydra_image_store_adt4.sam3 import sam3_track_id
+    from openset_query.store_writeback import sam3_track_id
 
     node = _node_value(sym)
     if node is None:
@@ -1370,7 +1370,7 @@ async def discover_and_upsert_indexed(
     nodeSymbols.
     """
     config = config or Sam3FrontendConfig()
-    from hydra_image_store import ImageStore
+    from hydra_python.image_store import ImageStore
 
     path = image_store[0] if isinstance(image_store, (list, tuple)) else image_store
     store = ImageStore.open(*(image_store if isinstance(image_store, (list, tuple)) else [path]))
@@ -1437,7 +1437,7 @@ def discover_and_upsert(
     else:
         if not store_dirs:
             raise ValueError("discover_and_upsert without a db needs image_store=...")
-        from hydra_image_store import ImageStore
+        from hydra_python.image_store import ImageStore
 
         store = ImageStore.open(*store_dirs)
         try:

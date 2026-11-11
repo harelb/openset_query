@@ -35,7 +35,7 @@ def load_pool(args, db=None) -> list:
     if db is not None:
         pool = ks.load_keyframes_from_db(db, include_subkeyframes=args.include_subkeyframes)
     else:
-        from hydra_image_store import ImageStore
+        from hydra_python.image_store import ImageStore
 
         with ImageStore.open(*args.image_store) as store:
             pool = ks.load_keyframes_from_store(

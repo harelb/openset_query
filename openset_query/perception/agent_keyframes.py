@@ -1,4 +1,4 @@
-"""Agents' own keyframes in a Hydra image store (``hydra_image_store``).
+"""Agents' own keyframes in a Hydra image store (``hydra_python.image_store``).
 
 Every keyframe archive is a ``KEYFRAME`` anchored to the agent node nearest in time.
 An agent node's *own* keyframe is the one taken at the node's stamp
@@ -45,7 +45,7 @@ def _to_ns(ts) -> Optional[int]:
 
 def stamps_from_graph(graph) -> Optional[StampFn]:
     """``node_id -> stamp_ns`` of the agent nodes of a spark_dsg graph or a
-    ``hydra_image_store.JsonDsg`` (None for other pose sources, e.g. mappings)."""
+    ``hydra_python.image_store.JsonDsg`` (None for other pose sources, e.g. mappings)."""
     if graph is None:
         return None
     if hasattr(graph, "get_node") and hasattr(graph, "has_node"):  # spark_dsg
@@ -112,7 +112,7 @@ def own_keyframe(store, node_id: int, timestamp_ns: Optional[int] = None):
 def keyframes(store, include_subkeyframes: bool, node_stamp: Optional[StampFn] = None):
     """Keyframes of ``store``, time-ordered: all of them with ``include_subkeyframes``,
     else only the agents' own (:func:`own_keyframes`)."""
-    from hydra_image_store import FrameKind
+    from hydra_python.image_store import FrameKind
 
     frames = store.frames(kind=FrameKind.KEYFRAME)
     return frames if include_subkeyframes else own_keyframes(frames, node_stamp)

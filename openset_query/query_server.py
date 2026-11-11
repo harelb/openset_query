@@ -252,14 +252,14 @@ def build_candidates(discovered, existing=(), dedup_dist_m: float = 0.75,
     "num_points", "num_views", "num_frames", "frame_keys": [every member view's
     frame key, best first], "would_merge_into": {"symbol", "distance_m"}|null,
     "image_uri", "views": [{"view", "frame_key", "source", "frame_id", "timestamp_ns",
-    "bbox_2d": [x0,y0,x1,y1], "score", "mask_rle" (hydra_image_store RLE JSON),
+    "bbox_2d": [x0,y0,x1,y1], "score", "mask_rle" (hydra_python.image_store RLE JSON),
     "mask_shape": [h, w], "image_uri"}]}``, views best first (at most ``max_views``);
     ``image_uri`` is a JPEG data URI of the view with the mask tinted and the box
     drawn (``overlay.render_annotated_data_uri``) per ``render`` (see RENDER_MODES).
     """
     import json as _json
 
-    from hydra_image_store import rle_encode
+    from hydra_python.image_store import rle_encode
 
     from openset_query.overlay import render_annotated_data_uri
 
@@ -328,7 +328,7 @@ def load_live_keyframes(root, include_subkeyframes: bool = False) -> list:
     """Keyframes of every live mirror under ``root``, posed by the stored odometry
     (the mirror has no scene graph). Tagged with their store so their ids are never
     mistaken for prior-map ids (frame reuse, embedding-cache keys)."""
-    from hydra_image_store import ImageStore
+    from hydra_python.image_store import ImageStore
 
     from openset_query import keyframe_store as ks
 
@@ -662,7 +662,7 @@ class QueryEngine:
         else:
             kf = self._frame_index()[key]
             if mask_rle:
-                from hydra_image_store import rle_decode
+                from hydra_python.image_store import rle_decode
 
                 if not mask_shape or len(mask_shape) < 2:
                     raise ValueError("mask needs mask_shape=h,w")
