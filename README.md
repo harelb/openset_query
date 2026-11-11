@@ -75,7 +75,7 @@ $ADT4_ENV/sam3/bin/openset-query-server --port 8077 --conf 0.25 --compile \
 
 | variable / flag | meaning |
 | --- | --- |
-| `HERACLES_NEO4J_URI`, `HERACLES_NEO4J_USERNAME`, `HERACLES_NEO4J_PASSWORD` | scene graph database (keyframes, objects, observations) |
+| `HERACLES_NEO4J_URI`, `HERACLES_NEO4J_USERNAME`, `HERACLES_NEO4J_PASSWORD` | scene graph database (keyframes, objects, observations); the URI defaults to `bolt://localhost:7687` and the user to `neo4j`; the password is required |
 | `HF_HUB_OFFLINE=1` | use the cached weights only |
 | `--port` | HTTP port (default 8077) |
 | `--conf` | SAM 3 confidence threshold (default 0.5; the console deployment uses 0.25) |
@@ -111,14 +111,37 @@ The full contract is in the docstring of `openset_query/query_server.py`.
 ## Requirements on the ADT4 workspace
 
 - `hydra_python.image_store` from Hydra `develop` (2ae75e8 or later).
-- `heracles` with the scene-graph functions the server calls
-  (`notify_map_change`, `create_vector_indexes`, `create_epistemic_indexes`,
-  `query_similar_nodes`, `insert_observations_to_db`, `attach_camera_calibs`,
-  `link_observations_to_frames`, `insert_trajectory_frames_to_db`,
-  `insert_frame_edges`, ...).
+- `heracles` master ([robustrobotics/heracles](https://github.com/robustrobotics/heracles)):
+  `Neo4jWrapper`, `constants`, `str_to_ns_value`, `node_to_dict`,
+  `insert_nodes_to_db`, `insert_edges` and `link_observations_to_frames`. That is
+  all querying and committing need; the `Observation` writer and the map version
+  bump live in `openset_query.heracles_compat`, with the same node shapes heracles
+  writes.
 - Image stores in the `hydra_python.image_store` format. Stores written by the
   earlier ADT4 image-store fork that still hold sub-keyframes (frame kind 1)
   must be converted first.
+
+The map version is bumped after a commit with the newest API that is importable:
+`heracles_ros.map_state.notify_map_change` (recording the changed layer and
+object when it accepts `changed_layers` / `changed_ids`), else
+`heracles.map_reload.bump_map_version` with the change, else the same Cypher
+(`_MapState.version`, plus the console's `_State` counter when it exists). The
+`/commit` reply carries `map_version` and `state_version` (null without a
+`_State` node). The server logs which one it uses at startup.
+
+Optional heracles features. The server logs at startup which are missing; none
+is needed to query and commit:
+
+| heracles function | turns on |
+| --- | --- |
+| `create_vector_indexes`, `insert_trajectory_frames_to_db`, `insert_frame_edges` | `python -m openset_query.ingest_keyframes` and `TrajectoryFrameIndex.ingest` (TrajectoryFrame nodes) |
+| `query_similar_nodes` | `TrajectoryFrameIndex` vector search |
+| `insert_frame_edges` | `DEPICTS` (TrajectoryFrame -> Object) provenance edges after a commit |
+| `create_epistemic_indexes` | indexes for the evidence store (`EvidenceStore.ensure_schema`) |
+| `constants.ADMISSION_BELIEF` | only a drift-guard test |
+
+Without them those tools stop with an error naming the missing function, and the
+server's ranking uses the SigLIP2 embeddings it keeps on the keyframe nodes.
 
 ## Origin and changes
 
@@ -133,6 +156,11 @@ at the version deployed on the ADT4 base station. Compared with that version:
   unchanged (the old package re-exported the same code);
 - `TrajectoryFrameIndex.lookup_near*` pass `LIMIT` as a parameter (Neo4j 5.2x
   rejected the old query);
+- it runs on heracles master instead of the ADT4 heracles fork (see above);
+  `/commit` returns `state_version: null` when the database has no console
+  `_State` node;
+- `HERACLES_NEO4J_PASSWORD` is required (there is no default password), and the
+  URI defaults to `bolt://localhost:7687`;
 - the HTTP contract, the admission policies and their flags are unchanged.
 
 ## Tests
