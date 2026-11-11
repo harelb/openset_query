@@ -353,7 +353,7 @@ class TrajectoryFrameIndex:
             "RETURN f.nodeSymbol AS nodeSymbol, dist AS distance, f.path AS path,\n"
             "       f.pos_x AS pos_x, f.pos_y AS pos_y, f.pos_z AS pos_z,\n"
             "       f.place_id AS place_id, f.timestamp_ns AS timestamp_ns\n"
-            "ORDER BY dist ASC LIMIT k"
+            "ORDER BY dist ASC LIMIT $k"
         )
         records, _, _ = self._db.execute(cypher, cx=cx, cy=cy, cz=cz, r=float(radius_m), k=k)
         return [dict(r) for r in records]
@@ -412,7 +412,7 @@ class TrajectoryFrameIndex:
             "RETURN f.nodeSymbol AS nodeSymbol, score, f.path AS path,\n"
             "       f.pos_x AS pos_x, f.pos_y AS pos_y, f.pos_z AS pos_z,\n"
             "       f.place_id AS place_id, f.timestamp_ns AS timestamp_ns\n"
-            "ORDER BY score DESC LIMIT k"
+            "ORDER BY score DESC LIMIT $k"
         )
         records, _, _ = self._db.execute(
             cypher, cx=cx, cy=cy, cz=cz, qv=qv, r=float(radius_m), k=k
