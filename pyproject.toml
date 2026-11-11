@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openset_query"
+version = "0.1.0"
+description = "Warm SAM3 open-vocabulary object query server over a Hydra image store and a Neo4j scene graph (ADT4)"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Harel Biggie", email = "harelb@mit.edu" }]
+requires-python = ">=3.11"
+# Runtime dependencies that come from PyPI. Not listed (not on PyPI, installed by
+# scripts/setup_env.sh from the ADT4 workspace or the SAM3 fork):
+#   - sam3 (git+https://github.com/harelb/sam3.git), torch, torchvision
+#   - hydra_python (Hydra's python package; only hydra_python.image_store is used)
+#   - heracles (Neo4j scene graph interface) and spark_dsg
+dependencies = [
+    "numpy<2",
+    "pillow",
+    "opencv-python-headless",
+    "scipy",
+    "safetensors",
+    "transformers",
+]
+
+[project.optional-dependencies]
+# OpenCLIP embedder (perception.embedders.OpenClipEmbedder); not used by the server
+openclip = ["open-clip-torch"]
+test = ["pytest"]
+
+[project.scripts]
+openset-query-server = "openset_query.query_server:main"
+
+[project.urls]
+Homepage = "https://github.com/harelb/openset_query"
+
+[tool.setuptools.packages.find]
+include = ["openset_query*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gpu: loads real model weights (run with OPENSET_QUERY_MODEL_TESTS=1)",
+    "adt4: needs heracles + spark_dsg from the ADT4 workspace",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+# imports follow the Neo4j / testcontainers availability probe
+"tests/test_frame_index.py" = ["E402"]
