@@ -69,7 +69,7 @@ HF_HUB_OFFLINE=1 \
 HERACLES_NEO4J_URI=bolt://localhost:7687 \
 HERACLES_NEO4J_USERNAME=neo4j HERACLES_NEO4J_PASSWORD=<password> \
 $ADT4_ENV/sam3/bin/openset-query-server --port 8077 --conf 0.25 --compile \
-    --live-store-root $HOME/adt4_output/live
+    --live-state $HOME/adt4_output/console_live.json
 # or: $ADT4_ENV/sam3/bin/python -m openset_query.query_server ...
 ```
 
@@ -81,7 +81,8 @@ $ADT4_ENV/sam3/bin/openset-query-server --port 8077 --conf 0.25 --compile \
 | `--conf` | SAM 3 confidence threshold (default 0.5; the console deployment uses 0.25) |
 | `--compile` | `torch.compile` the SAM 3 image model and warm it up at start |
 | `--image-store DIR...` / `IMAGE_STORE` | image stores to search besides the ones the Neo4j map names |
-| `--live-store-root DIR` / `SAM3_LIVE_STORE_ROOT` | also search live mirrors `<root>/<robot>/<epoch>/image_store` (re-scanned on `/reload`) |
+| `--live-state FILE` / `SAM3_LIVE_STATE` | the web console's live state (default `~/adt4_output/console_live.json`): the current run's live image-store mirrors and each robot's relocalization. Only those mirrors are searched (re-read before each query), posed into the prior map with the robot's `map <- robot frame` alignment, and only while the console says the robot is relocalized; a commit from a live image is refused (409) if that changed since the search. Mirrors of earlier runs are never read. Empty string: no live images |
+| `--live-store-root DIR` | deprecated, ignored (a shared mirror folder holds earlier runs in their own frames) |
 | `--feature-cache-dir` / `SAM3_FEATURE_CACHE_DIR` | SAM 3 feature cache (default `<image_store>/cache/`) |
 | `--admission-policy {off,margin,geometric}` / `SAM3_ADMISSION_POLICY` | grading of detector candidates (default `off`: writes stay candidates; a console commit admits them) |
 | `--admission-calibration FILE` / `SAM3_ADMISSION_CALIBRATION` | calibration artifact for `margin`/`geometric`, produced by `python -m openset_query.eval.calibrate_admission` |
@@ -103,7 +104,7 @@ All bodies are JSON. `openset_query.query_client` is a small stdlib client.
 | `POST /discard` | `pending_id` | `{"discarded": bool}` |
 | `POST /rank` | `prompt`, `top_k`, `source`, `min_ts`, `thumbs` | SigLIP2 frame ranking only (no SAM 3, nothing written) |
 | `GET /frame` | `key=<frame_key>` or `pending_id=&index=[&view=]`, optional `max_dim`, `mask`, `bbox` | a keyframe as a JPEG data URI, optionally annotated |
-| `POST /reload` | | re-read the keyframe pool (Neo4j + live mirrors) |
+| `POST /reload` | | re-read the keyframe pool (Neo4j + the current run's live mirrors) |
 | `POST /admission` | `policy`, optional `calibration` | switch the admission policy without reloading models |
 
 The full contract is in the docstring of `openset_query/query_server.py`.
