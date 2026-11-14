@@ -121,6 +121,35 @@ def _pool(tmp_path):
     return prior_dir, kfs + qs.load_live_keyframes(live_root), str(live_root)
 
 
+def write_live_state(path, live_root, relocalized=True, T=(0, 0, 0, 1, 0, 0, 0)):
+    """The console's live state: robot1's current store, relocalized with ``T``."""
+    import time
+
+    store = f"{live_root}/robot1/1760000000/image_store"
+    state = {
+        "version": 1,
+        "written_ns": time.time_ns(),
+        "live_store_root": str(live_root),
+        "robots": {
+            "robot1": {
+                "store_id": "1760000000",
+                "path": store,
+                "relocalized": relocalized,
+                "reason": None if relocalized else "relocalizing: 2 / 5",
+                "frame_align": {
+                    "ok": True,
+                    "parent": "map",
+                    "child": "robot1/map",
+                    "T": list(T),
+                },
+            }
+        },
+    }
+    with open(path, "w") as f:
+        json.dump(state, f)
+    return str(path)
+
+
 @pytest.fixture
 def engine(tmp_path):
     prior_dir, kfs, live_root = _pool(tmp_path)
@@ -133,7 +162,7 @@ def engine(tmp_path):
         segmenter=ScoredSegmenter(cfg),
         embedding_filter=RankEF(),
         keyframes=kfs,
-        live_store_root=live_root,
+        live_state=write_live_state(tmp_path / "console_live.json", live_root),
     )
     eng._Neo4jWrapper = StubDB
     return eng

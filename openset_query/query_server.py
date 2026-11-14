@@ -14,7 +14,7 @@ Run:
     $ADT4_ENV/sam3/bin/python \
         -m openset_query.query_server \
         --port 8077 [--image-store <dir>...] [--mask-output-dir <dir>] \
-        [--live-store-root ~/adt4_output/live]
+        [--live-state ~/adt4_output/console_live.json]
 
 API:
     GET  /health           -> {"status": "ready", "keyframes": N, "pending": N,
@@ -50,9 +50,11 @@ API:
                                "admission_status": "admitted", "policy_version",
                                "state_version", "map_version",
                                "already_committed": bool}
-                              (404 unknown/expired pending_id, 400 bad index)
+                              (404 unknown/expired pending_id, 400 bad index,
+                               409 a live image whose robot is not relocalized)
     POST /discard          <- {"pending_id": str} -> {"discarded": bool}
-    POST /reload           re-read the keyframe pool (Neo4j + live mirrors)
+    POST /reload           re-read the keyframe pool (Neo4j + the current run's live
+                           mirrors; those are also re-read before each query)
     POST /rank             <- {"prompt": str, "top_k": int, "source": str,
                                "min_ts": int, "thumbs": bool, "thumb_dim": int}
                            -> {"prompt", "source", "pool", "frames": [{"rank",
@@ -93,6 +95,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from openset_query.config import Sam3FrontendConfig
+from openset_query.live_pool import DEFAULT_STATE_FILE, LiveNotAligned
 
 logger = logging.getLogger("openset_query.query_server")
 
@@ -155,6 +158,19 @@ def filter_pool(keyframes, source=None, min_ts=None) -> list:
     if min_ts is not None:
         pool = [kf for kf in pool if kf.timestamp_ns >= int(min_ts)]
     return pool
+
+
+def _filter_posed(posed, live, source=None, min_ts=None) -> list:
+    """:func:`filter_pool` over the posed pool; a live source whose robot was left
+    out (not relocalized, not in the current run) is an empty pool, not an error."""
+    try:
+        return filter_pool(posed, source, min_ts)
+    except UnknownSource:
+        robots = (live or {}).get("robots") or {}
+        parts = (source or "").split("/")
+        if len(parts) >= 2 and parts[0] == "live" and parts[1] in robots:
+            return []
+        raise
 
 
 class _ConfFiltered:
@@ -355,6 +371,13 @@ def build_candidates(
                 "would_merge_into": _dedup_match(disc, existing, dedup_dist_m),
                 "image_uri": views[0]["image_uri"] if views else None,
                 "views": views,
+                "sources": sorted(
+                    {
+                        keyframe_source(o.keyframe)
+                        for o in disc.observations
+                        if o.keyframe is not None
+                    }
+                ),
             }
         )
     return out
@@ -370,17 +393,23 @@ def find_live_stores(root) -> list:
     return sorted(os.path.dirname(p) for p in glob.glob(pattern))
 
 
-def load_live_keyframes(root, include_subkeyframes: bool = False) -> list:
-    """Keyframes of every live mirror under ``root``, posed by the stored odometry
-    (the mirror has no scene graph). Tagged with their store so their ids are never
+def load_live_keyframes(stores, include_subkeyframes: bool = False) -> list:
+    """Keyframes of the live mirrors ``stores`` (``[(robot, store_id, store_dir)]``,
+    the current run's, from the console's live state; a directory string is read as
+    ``<dir>/<robot>/<store_id>/image_store`` for tools and tests), posed in the
+    robot's own scene-graph frame (the mirror has no prior-map scene graph: see
+    :func:`live_pool.posed_pool`). Tagged with their store so their ids are never
     mistaken for prior-map ids (frame reuse, embedding-cache keys)."""
     from hydra_python.image_store import ImageStore
 
     from openset_query import keyframe_store as ks
 
+    if stores is None:
+        return []
+    if isinstance(stores, (str, os.PathLike)):
+        stores = [(*d.split(os.sep)[-3:-1], d) for d in find_live_stores(stores)]
     out = []
-    for store_dir in find_live_stores(root):
-        robot, epoch = store_dir.split(os.sep)[-3:-1]
+    for robot, epoch, store_dir in stores:
         try:
             with ImageStore.open(store_dir) as store:
                 kfs = ks.load_keyframes_from_store(
@@ -392,6 +421,7 @@ def load_live_keyframes(root, include_subkeyframes: bool = False) -> list:
         for kf in kfs:
             kf.store_dir = store_dir
             kf.cache_ns = f"live/{robot}/{epoch}"
+            kf.robot_T_body = kf.world_T_body
         out.extend(kfs)
     return out
 
@@ -411,6 +441,7 @@ class QueryEngine:
         include_subkeyframes=False,
         admission_policy=None,
         live_store_root=None,
+        live_state=None,
         segmenter=None,
         embedding_filter=None,
         keyframes=None,
@@ -452,7 +483,15 @@ class QueryEngine:
         self._ks = ks
         self._Neo4jWrapper = Neo4jWrapper
         self._include_subkeyframes = include_subkeyframes
-        self.live_store_root = live_store_root
+        if live_store_root:
+            logger.warning(
+                "--live-store-root %s is ignored: live images come only from the "
+                "console's current run (--live-state)",
+                live_store_root,
+            )
+        #: the console's live state file (see live_pool); None = no live images
+        self.live_state = live_state
+        self._live_sig = None
         self.pending = PendingCache(pending_ttl_s, pending_max)
         self.neo4j_embeddings = neo4j_embeddings
         self.embedding_sources = {}
@@ -627,17 +666,95 @@ class QueryEngine:
         return out
 
     def _load_pool(self, db):
-        """Keyframe pool: Neo4j Agent rows (prior map) + live mirror stores."""
+        """Keyframe pool: Neo4j Agent rows (prior map) + the current run's live
+        mirrors (the console's live state)."""
         pool = self._ks.load_keyframes_from_db(
             db, include_subkeyframes=self._include_subkeyframes
         )
-        if self.live_store_root:
-            live = load_live_keyframes(self.live_store_root, self._include_subkeyframes)
+        self._live_sig = None
+        return pool + self._load_live()
+
+    def _live_stores(self):
+        from openset_query import live_pool
+
+        info = live_pool.read_state(self.live_state) if self.live_state else None
+        stores = live_pool.current_stores(info["state"]) if info else []
+        return info, stores
+
+    @staticmethod
+    def _stores_sig(stores):
+        sig = []
+        for robot, sid, d in stores:
+            mt = []
+            for f in ("store.sqlite", "store.sqlite-wal"):
+                try:
+                    mt.append(os.stat(os.path.join(d, f)).st_mtime_ns)
+                except OSError:
+                    mt.append(None)
+            sig.append((robot, sid, d, *mt))
+        return tuple(sig)
+
+    def _load_live(self):
+        """The current run's live keyframes (and remember what was read)."""
+        _, stores = self._live_stores()
+        live = load_live_keyframes(stores, self._include_subkeyframes)
+        # after reading: opening a store can create its -wal file
+        self._live_sig = self._stores_sig(stores)
+        if stores or live:
             logger.info(
-                "live mirrors under %s: %d keyframes", self.live_store_root, len(live)
+                "live mirrors of the current run (%s): %d keyframes",
+                ", ".join(f"{r}/{s}" for r, s, _ in stores) or "none",
+                len(live),
             )
-            pool = pool + live
-        return pool
+        return live
+
+    def _refresh_live(self):
+        """Swap in the current run's live keyframes when the console's current
+        stores changed or got new frames (caller holds the GPU lock). Old runs'
+        mirrors never enter: only stores the console lists are read."""
+        if not self.live_state:
+            return
+        _, stores = self._live_stores()
+        if self._stores_sig(stores) == self._live_sig:
+            return
+        prior = [kf for kf in self.keyframes if keyframe_source(kf) == PRIOR_SOURCE]
+        old = {frame_key(kf) for kf in self.keyframes}
+        self.keyframes = prior + self._load_live()
+        new = [kf for kf in self.keyframes if frame_key(kf) not in old]
+        if new:
+            try:
+                self.ef.embed_images(
+                    [kf.rgb_path for kf in new], keys=[frame_key(kf) for kf in new]
+                )
+            except Exception:
+                logger.exception("embedding %d new live keyframes", len(new))
+            if self.builder is not None:
+                self.builder.enqueue(self._build_order(new))
+
+    def _posed(self):
+        """``(pool, live)``: the pool with live keyframes posed into the map (only
+        relocalized robots of the current run), and ``live`` = per-robot status."""
+        from openset_query import live_pool
+
+        info = (
+            live_pool.read_state(self.live_state)
+            if self.live_state
+            else {
+                "ok": False,
+                "reason": "live images off (no --live-state)",
+                "state": None,
+            }
+        )
+        pool, excluded = live_pool.posed_pool(self.keyframes, info)
+        used = sorted({live_pool.robot_of(kf) for kf in pool if live_pool.is_live(kf)})
+        live = {
+            "state": "ok" if info.get("ok") else (info.get("reason") or "off"),
+            "robots": {
+                **{r: {"aligned": True, "reason": None} for r in used},
+                **{r: {"aligned": False, "reason": why} for r, why in excluded.items()},
+            },
+        }
+        return pool, live
 
     def reload_keyframes(self):
         """Re-read the keyframe pool from Neo4j (+ live mirrors) and warm the new embeddings.
@@ -710,7 +827,10 @@ class QueryEngine:
         from openset_query.overlay import render_annotated_data_uri
 
         t0 = time.perf_counter()
-        pool = filter_pool(self.keyframes, source, min_ts)
+        with self._lock:
+            self._refresh_live()
+        posed, live = self._posed()
+        pool = _filter_posed(posed, live, source, min_ts)
         if not pool:
             return {
                 "prompt": prompt,
@@ -720,6 +840,7 @@ class QueryEngine:
                 "elapsed_s": 0.0,
                 "timings": {},
                 "note": "empty pool",
+                "live": live,
             }
         with self._lock:  # the embedding model shares the GPU with SAM3
             t = time.perf_counter()
@@ -856,6 +977,7 @@ class QueryEngine:
                 self.config.association = association
             if self.cached is not None:
                 self.cached.reset_stats()
+            self._refresh_live()
             try:
                 with self._segmenter_at(conf) as seg:
                     out = self._query(
@@ -911,7 +1033,8 @@ class QueryEngine:
             # frames outrank fresh mediocre views forever and every
             # re-query re-reads the stale evidence (ranking starvation;
             # measured on a revisited simulated world).
-            pool = filter_pool(self.keyframes, source, min_ts)
+            posed, live = self._posed()
+            pool = _filter_posed(posed, live, source, min_ts)
             if not pool:
                 out = {
                     "prompt": prompt,
@@ -920,6 +1043,7 @@ class QueryEngine:
                     "elapsed_s": 0.0,
                     "timings": {},
                     "note": "empty pool after source/min_ts filter",
+                    "live": live,
                 }
                 if dry_run:
                     out.update(
@@ -1002,6 +1126,7 @@ class QueryEngine:
                     render=render,
                 )
                 out["pool"] = len(pool)
+                out["live"] = live
                 if views:
                     out["detections"] = len(views)
                 return out
@@ -1051,6 +1176,7 @@ class QueryEngine:
             "elapsed_s": round(total, 2),
             "timings": timings,
             "evidence": build_evidence_payload(discovered, touched, decisions),
+            "live": live,
         }
 
     def _dry_run_result(
@@ -1114,6 +1240,18 @@ class QueryEngine:
             if index in entry["committed"]:
                 return dict(entry["committed"][index], already_committed=True)
             disc = entry["discovered"][index]
+            # a detection from a live image lands in the prior map only while its
+            # robot is still relocalized with about the alignment it was searched with
+            from openset_query import live_pool
+
+            kfs = [o.keyframe for o in disc.observations if o.keyframe is not None]
+            if any(live_pool.is_live(kf) for kf in kfs):
+                live_pool.check_commit(
+                    kfs,
+                    live_pool.read_state(self.live_state)
+                    if self.live_state
+                    else {"ok": False, "reason": "live images off", "state": None},
+                )
             with self._Neo4jWrapper(self.uri, self.auth, atomic_queries=True) as db:
                 result = {}
                 touched = od.upsert_objects(
@@ -1228,12 +1366,17 @@ def make_handler(engine):
                     "keyframes": len(engine.keyframes),
                     "admission_policy": (pol.policy_version if pol else None),
                     "pending": len(engine.pending),
-                    "live_store_root": engine.live_store_root,
+                    "live_state": getattr(engine, "live_state", None),
                 }
                 # optional extras (engines in tests may not have them)
                 for key, fn in (("sources", "sources"), ("busy", "busy")):
                     if hasattr(engine, fn):
                         health[key] = getattr(engine, fn)()
+                if hasattr(engine, "_posed"):
+                    try:
+                        health["live"] = engine._posed()[1]
+                    except Exception as e:  # noqa: BLE001
+                        health["live"] = {"state": f"error: {e}", "robots": {}}
                 cfg = getattr(engine, "config", None)
                 if cfg is not None:
                     health["conf_threshold"] = cfg.conf_threshold
@@ -1361,6 +1504,8 @@ def make_handler(engine):
                     self._send(200, engine.commit(pid, int(req["index"])))
                 except PendingNotFound:
                     self._send(404, {"error": "unknown or expired pending_id"})
+                except LiveNotAligned as e:
+                    self._send(409, {"error": str(e), "live_not_aligned": True})
                 except (IndexError, ValueError) as e:
                     self._send(400, {"error": str(e)})
                 except Exception as e:
@@ -1563,10 +1708,18 @@ def main(argv=None):
         "(~2.9x more frames; longer one-time embedding cache build)",
     )
     p.add_argument(
+        "--live-state",
+        default=os.getenv("SAM3_LIVE_STATE", DEFAULT_STATE_FILE),
+        help="The web console's live state file: the current run's live image-store "
+        "mirrors and each robot's relocalization (map <- robot frame). Only those "
+        "mirrors are searched, posed into the prior map, and only while the robot is "
+        "relocalized. Empty string: no live images.",
+    )
+    p.add_argument(
         "--live-store-root",
-        default=os.getenv("SAM3_LIVE_STORE_ROOT"),
-        help="Also search the live mirrors <root>/<robot>/<epoch>/image_store "
-        "(posed by their odometry); re-scanned on POST /reload",
+        default=None,
+        help="Deprecated and ignored: live mirrors come from --live-state only (a "
+        "shared mirror folder holds earlier runs in other frames)",
     )
     p.add_argument(
         "--pending-ttl",
@@ -1635,6 +1788,7 @@ def main(argv=None):
         include_subkeyframes=args.include_subkeyframes,
         admission_policy=policy,
         live_store_root=args.live_store_root,
+        live_state=args.live_state or None,
         pending_ttl_s=args.pending_ttl,
         feature_cache=args.feature_cache,
         feature_cache_dir=args.feature_cache_dir,
