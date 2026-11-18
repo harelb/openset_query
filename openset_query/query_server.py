@@ -20,6 +20,13 @@ API:
     GET  /health           -> {"status": "ready", "keyframes": N, "pending": N,
                                "sources": [{"id", "keyframes"}], "conf_threshold",
                                "busy", ...}
+    POST /segment          <- {"image_b64": str, "prompt": str, "conf": float?,
+                               "max_detections": int?, "overlay": bool?}
+                           -> {"ok", "detections": [{label, score, box_xyxy,
+                               center_px, area_px, mask_rle}], "width", "height",
+                               "overlay_jpeg_b64", "elapsed_s"}
+         SAM3 on one uploaded image, not the keyframe pool (segment_image.py);
+         e.g. the console's Penn quad captures.
     POST /query            <- {"prompt": str, "frustum": bool, "top_k": int,
                                "max_frames": int, "patience": int, "min_ts": int,
                                "dry_run": bool, "source": str, "conf": float}
@@ -819,6 +826,14 @@ class QueryEngine:
                 setter(old)
             self.config.conf_threshold = old
 
+    def segment_upload(self, req):
+        """``POST /segment``: SAM3 on one uploaded image (segment_image.py). The
+        warm segmenter, not the feature cache (the image is not a pool frame)."""
+        from openset_query import segment_image
+
+        with self._lock:
+            return segment_image.segment(self.segmenter, req)
+
     def rank(
         self, prompt, top_k=24, source=None, min_ts=None, thumbs=True, thumb_dim=320
     ):
@@ -1435,6 +1450,22 @@ def make_handler(engine):
                 self._send(404, {"error": "not found"})
 
         def do_POST(self):
+            if self.path == "/segment":
+                from openset_query.segment_image import SegmentRequestError
+
+                if not hasattr(engine, "segment_upload"):
+                    self._send(503, {"ok": False, "error": "this engine cannot segment uploads"})
+                    return
+                try:
+                    self._send(200, engine.segment_upload(self._body()))
+                except SegmentRequestError as e:
+                    self._send(400, {"ok": False, "error": str(e)})
+                except ValueError as e:  # undecodable JSON body
+                    self._send(400, {"ok": False, "error": f"bad request: {e}"})
+                except Exception as e:
+                    logger.exception("segment failed")
+                    self._send(500, {"ok": False, "error": str(e)})
+                return
             if self.path == "/admission":
                 # Runtime policy switch: swap the grading policy without
                 # reloading the warm models. Body: {"policy": "margin"|
